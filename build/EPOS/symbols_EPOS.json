@@ -1,0 +1,29 @@
+{
+  "symbols": [
+    {
+      "name": "UnderlyingAssetTokenId",
+      "type": "CollByte",
+      "value": "00bd762484086cf560d3127eb53f0769d76244d9737636b2699d55c56cd470bf"
+    },
+    {
+      "name": "UnderlyingAssetDecimalFactor",
+      "type": "Long",
+      "value": "10000"
+    },
+    {
+      "name": "OracleTokenId",
+      "type": "CollByte",
+      "value": "04f468174eddbc68bce3f0965dd14bc6ed1443f5a405ec7f7f9925d999370b97"
+    },
+    {
+      "name": "OptionCallScriptHash",
+      "type": "CollByte",
+      "value": "1f487954ef56b8f85c018dc2bd51a0a4783cf62419d81033b8e0207a9ab50338"
+    },
+    {
+      "name": "BoxMinValue",
+      "type": "Long",
+      "value": "1000000"
+    }
+  ]
+}

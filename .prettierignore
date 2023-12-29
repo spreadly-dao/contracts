@@ -1,0 +1,6 @@
+# Ignore all files:
+**
+
+# Allow .js and .ts files:
+!*.js
+!*.ts
