@@ -1,0 +1,26 @@
+# Dependencies
+**/node_modules/
+
+# Build artifacts
+**/build/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Move specific
+*.lock
