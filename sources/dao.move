@@ -1,4 +1,5 @@
-#[allow(unused_use)]
+#[allow(unused_use, unused_const)]
+
 module spreadly::dao {
     use std::ascii::{Self, String as AsciiString};
     use std::string::{Self, String};
@@ -12,6 +13,7 @@ module spreadly::dao {
     use sui::event;
     use sui::coin::{Self, Coin};
     use std::type_name::{Self, TypeName};
+    use spreadly::treasury::{Self, Treasury};
 
     // Errors
     const EINVALID_THRESHOLD: u64 = 0;
@@ -32,7 +34,7 @@ module spreadly::dao {
         min_participation: u64,        // Minimum participation in basis points
         min_proposal_duration: u64,    // Minimum duration in milliseconds
         min_token_for_proposal: u64,   // Minimum tokens needed to create proposal
-        treasury: Option<ID>,          // ID of the treasury object that will hold tokens
+        treasury: ID,          // ID of the treasury object that will hold tokens
         revenue_pool: Option<ID>,      // ID of the revenue pool
     }
 
@@ -42,6 +44,7 @@ module spreadly::dao {
         dao_id: ID,
         name: String,
         creator: address,
+        treasury_id: ID,
         token_type: TypeName,
     }
 
@@ -54,6 +57,7 @@ module spreadly::dao {
         min_participation: u64,
         min_proposal_duration: u64,
         min_token_for_proposal: u64,
+        treasury_tokens: Coin<CoinType>,
         ctx: &mut TxContext
     ) {
         assert!(support_threshold <= BASIS_POINTS, EINVALID_THRESHOLD);
@@ -62,6 +66,9 @@ module spreadly::dao {
 
         let logo_bytes = *string::as_bytes(&logo_url);
         let logo_ascii = ascii::string(logo_bytes);
+
+        // Create treasury first with initial tokens
+        let treasury_id = treasury::create_treasury(treasury_tokens, ctx);
 
         let dao = DAO<CoinType> {
             id: object::new(ctx),
@@ -72,7 +79,7 @@ module spreadly::dao {
             min_participation,
             min_proposal_duration,
             min_token_for_proposal,
-            treasury: option::none(),
+            treasury: treasury_id,
             revenue_pool: option::none(),
         };
 
@@ -83,6 +90,7 @@ module spreadly::dao {
             dao_id,
             name,
             creator: tx_context::sender(ctx),
+            treasury_id,
             token_type: type_name::get<CoinType>(),
         });
 
@@ -115,16 +123,12 @@ module spreadly::dao {
     }
     
     /// Get the treasury ID if set
-    public fun treasury<CoinType>(dao: &DAO<CoinType>): Option<ID> { dao.treasury }
+    public fun treasury<CoinType>(dao: &DAO<CoinType>): ID { dao.treasury }
     
     /// Get the revenue pool ID if set
     public fun revenue_pool<CoinType>(dao: &DAO<CoinType>): Option<ID> { dao.revenue_pool }
 
     // === Setter Functions ===
-    /// Set the treasury ID for the DAO
-    public fun set_treasury<CoinType>(dao: &mut DAO<CoinType>, treasury_id: ID) {
-        option::fill(&mut dao.treasury, treasury_id);
-    }
     
     /// Set the revenue pool ID for the DAO
     public fun set_revenue_pool<CoinType>(dao: &mut DAO<CoinType>, pool_id: ID) {
