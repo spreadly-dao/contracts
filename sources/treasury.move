@@ -23,11 +23,12 @@ module spreadly::treasury {
         id: UID,
         governance_vault: ID,  // Main governance token vault
         token_vaults: vector<ID>,  // Vector of other vault IDs
+        token_types: vector<TypeName>,  // Vector of token types
     }
 
     // === Vault Creation and Management ===
     
-    public fun new_vault<T>(
+    fun new_vault<T>(
         coin: Coin<T>,
         ctx: &mut TxContext
     ): ID {
@@ -50,7 +51,8 @@ module spreadly::treasury {
         let treasury = Treasury {
             id: object::new(ctx),
             governance_vault: gov_vault_id,
-            token_vaults: vector::empty()
+            token_vaults: vector::empty(),
+            token_types: vector::singleton(type_name::get<GovToken>())
         };
         let treasury_id = object::id(&treasury);
         transfer::share_object(treasury);
@@ -61,26 +63,24 @@ module spreadly::treasury {
         treasury: &mut Treasury,
         coin: Coin<T>,
         ctx: &mut TxContext
-    ): ID {  // Return the vault ID
-        let vault_id = new_vault(coin, ctx);
+    ): ID {
+        let new_type = type_name::get<T>();
         
-        // Check if vault for this type already exists
-        let vault_exists = false;
+        // Check if type already exists
         let i = 0;
-        let len = vector::length(&treasury.token_vaults);
+        let len = vector::length(&treasury.token_types);
         while (i < len) {
-            if (vector::borrow(&treasury.token_vaults, i) == &vault_id) {
-                vault_exists = true;
-                break
-            };
+            let existing_type = vector::borrow(&treasury.token_types, i);
+            assert!(*existing_type != new_type, EVAULT_ALREADY_EXISTS);
             i = i + 1;
         };
-        assert!(!vault_exists, EVAULT_ALREADY_EXISTS);
-
+        
+        // Create and share new vault
+        let vault_id = new_vault(coin, ctx);
         vector::push_back(&mut treasury.token_vaults, vault_id);
+        vector::push_back(&mut treasury.token_types, new_type);
         vault_id
     }
-
     // === Vault Operations ===
 
     public fun deposit<T>(vault: &mut TreasuryVault<T>, coin: Coin<T>) {
