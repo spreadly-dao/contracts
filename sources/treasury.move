@@ -1,4 +1,4 @@
-#[allow(unused_use)]
+#[allow(unused_use, unused_const)]
 module spreadly::treasury {
     use sui::object::{Self, ID, UID};
     use sui::balance::{Self, Balance};
