@@ -356,45 +356,126 @@ module spreadly::spreadly {
         
         (sui_contributed * (LP_ALLOCATION / total_sui))
     }
+
+    public fun get_lp_info(
+        distribution: &Distribution,
+        provider: address,
+    ): (u64, u64, bool) {
+        let sui_contributed = if (table::contains(&distribution.liquidity_providers, provider)) {
+            *table::borrow(&distribution.liquidity_providers, provider)
+        } else {
+            0
+        };
+
+        let claimable = get_claimable_lp_tokens(distribution, provider);
+        let has_claimed = vec_set::contains(&distribution.claimed_lp, &provider);
+
+        (sui_contributed, claimable, has_claimed)
+    }
+
+    public fun get_distribution_info(
+        distribution: &Distribution,
+        clock: &Clock
+    ): (u8, u64, u64, u64, u64, u64, u64) {
+        let lp_time_remaining = if (distribution.phase == PHASE_LIQUIDITY && distribution.liquidity_start != 0) {
+            let elapsed = clock::timestamp_ms(clock) - distribution.liquidity_start;
+            if (elapsed >= LIQUIDITY_PERIOD) {
+                0
+            } else {
+                LIQUIDITY_PERIOD - elapsed
+            }
+        } else {
+            0
+        };
+
+        let claim_time_remaining = if (distribution.phase == PHASE_COMMUNITY_REGISTRATION && distribution.claim_start != 0) {
+            let elapsed = clock::timestamp_ms(clock) - distribution.claim_start;
+            if (elapsed >= CLAIM_PERIOD) {
+                0
+            } else {
+                CLAIM_PERIOD - elapsed
+            }
+        } else {
+            0
+        };
+
+        (
+            distribution.phase,
+            balance::value(&distribution.sui_balance),
+            distribution.lp_remaining,
+            distribution.community_remaining,
+            distribution.dex_remaining,
+            lp_time_remaining,
+            claim_time_remaining
+        )
+    }
+
+    public fun get_claimable_community_tokens(
+        distribution: &Distribution,
+        claimer: address,
+    ): u64 {
+        if (distribution.phase != PHASE_DISTRIBUTION) {
+            return 0
+        };
+        
+        if (!vec_set::contains(&distribution.registered_claimers, &claimer) || 
+            vec_set::contains(&distribution.claimed_community, &claimer)) {
+            return 0
+        };
+
+        let total_claimers = vec_set::size(&distribution.registered_claimers);
+        COMMUNITY_ALLOCATION / total_claimers
+    }
+
+    public fun get_total_sui_raised(distribution: &Distribution): u64 {
+        balance::value(&distribution.sui_balance)
+    }
+
+    public fun get_total_registered_claimers(distribution: &Distribution): u64 {
+        vec_set::size(&distribution.registered_claimers)
+    }
+
+    public fun get_total_claimed_community(distribution: &Distribution): u64 {
+        vec_set::size(&distribution.claimed_community)
+    }
     
-    // test getters
-    #[test_only]
     public fun get_phase(distribution: &Distribution): u8 {
         distribution.phase
     }
 
-    #[test_only]
     public fun get_liquidity_period(): u64 {
         LIQUIDITY_PERIOD
     }
 
-    #[test_only]
     public fun get_claim_period(): u64 {
         CLAIM_PERIOD
     }
 
-    #[test_only]
     public fun get_max_sui_cap(): u64 {
         MAX_SUI_CAP
     }
 
-    #[test_only]
     public fun get_phase_community_registration(): u8 {
         PHASE_COMMUNITY_REGISTRATION
     }
 
-    #[test_only]
+    public fun get_phase_completed(): u8 {
+        PHASE_COMPLETED
+    }
+
     public fun get_liquidity_start(distribution: &Distribution): u64 {
         distribution.liquidity_start
     }
 
-    #[test_only]
     public fun get_max_sui_contribution(): u64 {
         MAX_SUI_CONTRIBUTION 
     }
 
-    #[test_only]
     public fun get_phase_liquidity(): u8 {
         PHASE_LIQUIDITY
+    }
+
+    public fun get_community_allocation(): u64 {
+        COMMUNITY_ALLOCATION
     }
 }
