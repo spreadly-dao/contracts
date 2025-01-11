@@ -36,9 +36,9 @@ module spreadly::spreadly {
     const MAX_SUI_CONTRIBUTION: u64 = 1_000_000_000_000; // 1,000 SUI maximum per address
     const LIQUIDITY_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
     const CLAIM_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const LP_ALLOCATION: u64 = TOTAL_SUPPLY * 40 / 100; // 40% for LPs
-    const COMMUNITY_ALLOCATION: u64 = TOTAL_SUPPLY * 40 / 100; // 40% for community
-    const DEX_ALLOCATION: u64 = TOTAL_SUPPLY * 20 / 100; // 20% for DEX
+    const LP_ALLOCATION: u64 = TOTAL_SUPPLY * 45 / 100; // 45% for LPs
+    const COMMUNITY_ALLOCATION: u64 = TOTAL_SUPPLY * 30 / 100; // 30% for community
+    const DEX_ALLOCATION: u64 = TOTAL_SUPPLY * 25 / 100; // 25% for DEX
 
     // Distribution phases
     const PHASE_LIQUIDITY: u8 = 0;
@@ -360,5 +360,20 @@ module spreadly::spreadly {
     #[test_only]
     public fun get_phase_community_registration(): u8 {
         PHASE_COMMUNITY_REGISTRATION
+    }
+
+    #[test_only]
+    public fun get_liquidity_start(distribution: &Distribution): u64 {
+        distribution.liquidity_start
+    }
+
+    #[test_only]
+    public fun get_max_sui_contribution(): u64 {
+        MAX_SUI_CONTRIBUTION 
+    }
+
+    #[test_only]
+    public fun get_phase_liquidity(): u8 {
+        PHASE_LIQUIDITY
     }
 }
