@@ -63,8 +63,7 @@ module spreadly::spreadly_tests {
         advance_clock(clock, 1000);
     }
 
-    // Add a helper function for dynamic account creation and contribution
-    fun contribute_until_cap(scenario: &mut Scenario, clock: &Clock, contribution_amount: u64) {
+    fun get_test_addresses(count: u64): vector<address> {
         let addresses = vector[
             TEST_ADDR_1,
             TEST_ADDR_2,
@@ -83,6 +82,15 @@ module spreadly::spreadly_tests {
             TEST_ADDR_15,
             TEST_ADDR_16
         ];
+        while (vector::length(&addresses) > count) {
+            vector::pop_back(&mut addresses);
+        };
+        addresses
+    }
+
+    // Add a helper function for dynamic account creation and contribution
+    fun contribute_until_cap(scenario: &mut Scenario, clock: &Clock, contribution_amount: u64) {
+        let addresses = get_test_addresses(16);
         
         let total = 0;
         let max_cap = spreadly::get_max_sui_cap();
@@ -109,6 +117,22 @@ module spreadly::spreadly_tests {
             total = total + amount;
             i = i + 1;
         }
+    }
+
+    // Helper to setup distribution and move to community registration phase
+    fun setup_and_fill_liquidity(scenario: &mut Scenario, clock: &mut Clock) {
+        setup_test(scenario, clock);
+
+        // Start liquidity phase
+        ts::next_tx(scenario, ADMIN);
+        {
+            let distribution = ts::take_shared<Distribution>(scenario);
+            spreadly::start_liquidity_phase(&mut distribution, clock);
+            ts::return_shared(distribution);
+        };
+
+        // Fill up to max cap using multiple contributors
+        contribute_until_cap(scenario, clock, MAX_CONTRIBUTION);
     }
 
     #[test]
@@ -260,9 +284,7 @@ module spreadly::spreadly_tests {
             ts::return_shared(distribution);
         };
 
-        // Have multiple users contribute until we hit the cap
-        // Start from address 1000 to avoid conflicts with our test constants
-        contribute_until_cap(&mut scenario, &clock, spreadly::get_max_sui_contribution());
+        setup_and_fill_liquidity(&mut scenario, &mut clock);
 
         // Verify phase changed after reaching cap
         ts::next_tx(&mut scenario, ADMIN);
@@ -276,129 +298,238 @@ module spreadly::spreadly_tests {
         ts::end(scenario);
     }
 
-    // #[test]
-    // fun test_liquidity_phase_time_expiry() {
-    //     let scenario = ts::begin(ADMIN);
-    //     setup_test(&mut scenario);
-    //     let clock = create_clock(&mut scenario);
+    #[test]
+    #[expected_failure(abort_code = spreadly::spreadly::ESTILL_IN_LIQUIDITY)]
+    fun test_claim_during_liquidity_phase() {
+        let scenario = ts::begin(ADMIN);
+        let clock = create_clock(&mut scenario);
+        setup_test(&mut scenario, &mut clock);
 
-    //     // Start liquidity phase
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         spreadly::start_liquidity_phase(&mut distribution, &clock);
+        // Start liquidity phase
+        ts::next_tx(&mut scenario, ADMIN);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            spreadly::start_liquidity_phase(&mut distribution, &clock);
+            ts::return_shared(distribution);
+        };
+
+        // Provide liquidity
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            let coin = coin::mint_for_testing<SUI>(TEN_SUI, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(distribution);
+        };
+
+        // Try to claim during liquidity phase (should fail)
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            spreadly::claim_lp_tokens(&mut distribution, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(distribution);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    fun test_lp_claim_single_provider() {
+        let scenario = ts::begin(ADMIN);
+        let clock = create_clock(&mut scenario);
+        setup_and_fill_liquidity(&mut scenario, &mut clock);
+
+        // Check expected claimable amount
+        let expected_amount;
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            expected_amount = spreadly::get_claimable_lp_tokens(&distribution, TEST_ADDR_1);
+            assert!(expected_amount > 0, 0);
+            ts::return_shared(distribution);
+        };
+
+        // First LP claims their tokens
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            spreadly::claim_lp_tokens(&mut distribution, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(distribution);
+        };
+
+        // Verify they received the expected amount
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let coin = ts::take_from_address<Coin<SPREADLY>>(&scenario, TEST_ADDR_1);
+            assert!(coin::value(&coin) == expected_amount, 0);
+            ts::return_to_address(TEST_ADDR_1, coin);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = spreadly::spreadly::ENOT_LP)]
+    fun test_claim_by_non_lp() {
+        let scenario = ts::begin(ADMIN);
+        let clock = create_clock(&mut scenario);
+        setup_and_fill_liquidity(&mut scenario, &mut clock);
+
+        // Address that didn't provide liquidity tries to claim
+        ts::next_tx(&mut scenario, @0x999);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            spreadly::claim_lp_tokens(&mut distribution, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(distribution);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = spreadly::spreadly::EALREADY_CLAIMED)]
+    fun test_double_claim() {
+        let scenario = ts::begin(ADMIN);
+        let clock = create_clock(&mut scenario);
+        setup_and_fill_liquidity(&mut scenario, &mut clock);
+
+        // First claim (should succeed)
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            spreadly::claim_lp_tokens(&mut distribution, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(distribution);
+        };
+
+        // Second claim (should fail)
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            spreadly::claim_lp_tokens(&mut distribution, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(distribution);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+        #[test]
+    fun test_sequential_lp_claims() {
+        let scenario = ts::begin(ADMIN);
+        let clock = create_clock(&mut scenario);
+        setup_and_fill_liquidity(&mut scenario, &mut clock);
+
+        // Get all expected claimable amounts first
+        let addresses = get_test_addresses(8); // Test with 8 LPs
+        let expected_amounts = vector::empty();
+        let i = 0;
+        
+        while (i < vector::length(&addresses)) {
+            let addr = *vector::borrow(&addresses, i);
+            ts::next_tx(&mut scenario, addr);
+            {
+                let distribution = ts::take_shared<Distribution>(&scenario);
+                let expected = spreadly::get_claimable_lp_tokens(&distribution, addr);
+                assert!(expected > 0, 0); // Ensure each LP has tokens to claim
+                vector::push_back(&mut expected_amounts, expected);
+                ts::return_shared(distribution);
+            };
+            i = i + 1;
+        };
+
+        // Now have each LP claim and verify
+        i = 0;
+        while (i < vector::length(&addresses)) {
+            let addr = *vector::borrow(&addresses, i);
+            let expected = *vector::borrow(&expected_amounts, i);
+
+            // Claim tokens
+            ts::next_tx(&mut scenario, addr);
+            {
+                let distribution = ts::take_shared<Distribution>(&scenario);
+                spreadly::claim_lp_tokens(&mut distribution, &clock, ts::ctx(&mut scenario));
+                ts::return_shared(distribution);
+            };
+
+            // Verify claimed amount
+            ts::next_tx(&mut scenario, addr);
+            {
+                let coin = ts::take_from_address<Coin<SPREADLY>>(&scenario, addr);
+                assert!(coin::value(&coin) == expected, 0);
+                ts::return_to_address(addr, coin);
+            };
             
-    //         // Add some liquidity but not max
-    //         let coin = coin::mint_for_testing<SUI>(TEN_SUI, ts::ctx(&mut scenario));
-    //         spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
-    //         ts::return_shared(distribution);
-    //     };
+            i = i + 1;
+        };
 
-    //     // Advance time past 7 days
-    //     advance_clock(&mut clock, spreadly::get_liquidity_period() + 1);
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
 
-    //     // End liquidity phase
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         spreadly::end_liquidity_period(&mut distribution, &clock);
-    //         assert!(spreadly::get_phase(&distribution) == spreadly::get_phase_community_registration(), 0);
-    //         ts::return_shared(distribution);
-    //     };
+    #[test]
+    fun test_multi_contribution_provider() {
+        let scenario = ts::begin(ADMIN);
+        let clock = create_clock(&mut scenario);
+        setup_test(&mut scenario, &mut clock);
 
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
+        // Verify initial state
+        ts::next_tx(&mut scenario, ADMIN);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            assert!(spreadly::get_phase(&distribution) == 0, 0);
+            assert!(spreadly::get_liquidity_start(&distribution) == 0, 1);
+            ts::return_shared(distribution);
+        };
 
-    // #[test]
-    // fun test_immediate_lp_claim() {
-    //     let scenario = ts::begin(ADMIN);
-    //     setup_test(&mut scenario);
-    //     let clock = create_clock(&mut scenario);
+        // Start liquidity phase
+        ts::next_tx(&mut scenario, ADMIN);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            spreadly::start_liquidity_phase(&mut distribution, &clock);
+            ts::return_shared(distribution);
+        };
 
-    //     // Setup: Start liquidity and provide tokens
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         spreadly::start_liquidity_phase(&mut distribution, &clock);
-    //         ts::return_shared(distribution);
-    //     };
+        let contribution1 = MIN_CONTRIBUTION * 2; // 2 SUI
+        let contribution2 = MIN_CONTRIBUTION * 3; // 3 SUI
+        let contribution3 = MIN_CONTRIBUTION * 5; // 5 SUI
 
-    //     // TEST_ADDR_1 provides liquidity
-    //     ts::next_tx(&mut scenario, TEST_ADDR_1);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         let coin = coin::mint_for_testing<SUI>(TEN_SUI, ts::ctx(&mut scenario));
-    //         spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
-    //         ts::return_shared(distribution);
-    //     };
+        // First contribution
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            let coin = coin::mint_for_testing<SUI>(contribution1, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(distribution);
+        };
 
-    //     // End liquidity phase
-    //     advance_clock(&mut clock, spreadly::get_liquidity_period() + 1);
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         spreadly::end_liquidity_period(&mut distribution, &clock);
-    //         ts::return_shared(distribution);
-    //     };
+        // Advance clock
+        advance_clock(&mut clock, 100_000);
 
-    //     // TEST_ADDR_1 claims LP tokens immediately
-    //     ts::next_tx(&mut scenario, TEST_ADDR_1);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         spreadly::claim_lp_tokens(&mut distribution, &clock, ts::ctx(&mut scenario));
-    //         ts::return_shared(distribution);
-    //     };
+        // Second contribution
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            let coin = coin::mint_for_testing<SUI>(contribution2, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(distribution);
+        };
 
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
+        // Advance clock again
+        advance_clock(&mut clock, 200_000);
 
-    // #[test]
-    // fun test_community_claim_timing() {
-    //     let scenario = ts::begin(ADMIN);
-    //     setup_test(&mut scenario);
-    //     let clock = create_clock(&mut scenario);
+        // Third contribution
+        ts::next_tx(&mut scenario, TEST_ADDR_1);
+        {
+            let distribution = ts::take_shared<Distribution>(&scenario);
+            let coin = coin::mint_for_testing<SUI>(contribution3, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(distribution);
+        };
 
-    //     // Setup: Complete liquidity phase
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         spreadly::start_liquidity_phase(&mut distribution, &clock);
-    //         let coin = coin::mint_for_testing<SUI>(TEN_SUI, ts::ctx(&mut scenario));
-    //         spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
-    //         advance_clock(&mut clock, spreadly::get_liquidity_period() + 1);
-    //         spreadly::end_liquidity_period(&mut distribution, &clock);
-    //         ts::return_shared(distribution);
-    //     };
-
-    //     // Register for community allocation
-    //     ts::next_tx(&mut scenario, USER2);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         spreadly::register_for_community(&mut distribution, &clock, ts::ctx(&mut scenario));
-    //         ts::return_shared(distribution);
-    //     };
-
-    //     // Advance past claim period
-    //     advance_clock(&mut clock, spreadly::get_claim_period() + 1);
-
-    //     // Start distribution and claim tokens
-    //     ts::next_tx(&mut scenario, ADMIN);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         spreadly::start_distribution(&mut distribution, &clock);
-    //         ts::return_shared(distribution);
-    //     };
-
-    //     ts::next_tx(&mut scenario, USER2);
-    //     {
-    //         let distribution = ts::take_shared<Distribution>(&scenario);
-    //         spreadly::claim_community_tokens(&mut distribution, &clock, ts::ctx(&mut scenario));
-    //         ts::return_shared(distribution);
-    //     };
-
-    //     clock::destroy_for_testing(clock);
-    //     ts::end(scenario);
-    // }
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
 }

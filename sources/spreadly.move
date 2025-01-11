@@ -36,9 +36,9 @@ module spreadly::spreadly {
     const MAX_SUI_CONTRIBUTION: u64 = 1_000_000_000_000; // 1,000 SUI maximum per address
     const LIQUIDITY_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
     const CLAIM_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const LP_ALLOCATION: u64 = TOTAL_SUPPLY * 45 / 100; // 45% for LPs
-    const COMMUNITY_ALLOCATION: u64 = TOTAL_SUPPLY * 30 / 100; // 30% for community
-    const DEX_ALLOCATION: u64 = TOTAL_SUPPLY * 25 / 100; // 25% for DEX
+    const LP_ALLOCATION: u64 = TOTAL_SUPPLY * 50 / 100; // 50% for LPs
+    const COMMUNITY_ALLOCATION: u64 = TOTAL_SUPPLY * 35 / 100; // 35% for community
+    const DEX_ALLOCATION: u64 = TOTAL_SUPPLY * 15 / 100; // 15% for DEX
 
     // Distribution phases
     const PHASE_LIQUIDITY: u8 = 0;
@@ -168,6 +168,7 @@ module spreadly::spreadly {
         assert!(total_contribution <= MAX_SUI_CONTRIBUTION, EMAX_CONTRIBUTION);
 
         let total_after = balance::value(&distribution.sui_balance) + sui_amount;
+        // asserts no overflow of max cap
         assert!(total_after <= MAX_SUI_CAP, EMAX_SUI_CAP);
 
         // Update provider's contribution
@@ -268,7 +269,7 @@ module spreadly::spreadly {
 
         let sui_contributed = *table::borrow(&distribution.liquidity_providers, provider);
         let total_sui = balance::value(&distribution.sui_balance);
-        let lp_share = (sui_contributed * LP_ALLOCATION) / total_sui;
+        let lp_share = (sui_contributed * (LP_ALLOCATION / total_sui));
 
         distribution.lp_remaining = distribution.lp_remaining - lp_share;
         let tokens = coin::mint(&mut distribution.treasury_cap, lp_share, ctx);
@@ -337,6 +338,26 @@ module spreadly::spreadly {
     }
 
     // getters
+    public fun get_claimable_lp_tokens(
+        distribution: &Distribution,
+        provider: address,
+    ): u64 {
+        if (distribution.phase < PHASE_COMMUNITY_REGISTRATION) {
+            return 0
+        };
+        
+        if (!table::contains(&distribution.liquidity_providers, provider) || 
+            vec_set::contains(&distribution.claimed_lp, &provider)) {
+            return 0
+        };
+
+        let sui_contributed = *table::borrow(&distribution.liquidity_providers, provider);
+        let total_sui = balance::value(&distribution.sui_balance);
+        
+        (sui_contributed * (LP_ALLOCATION / total_sui))
+    }
+    
+    // test getters
     #[test_only]
     public fun get_phase(distribution: &Distribution): u8 {
         distribution.phase
