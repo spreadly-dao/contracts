@@ -93,7 +93,7 @@ module spreadly::spreadly {
             witness, 
             9, 
             b"Spreadly", 
-            b"SPREADLY", 
+            b"SPRD", 
             b"Spreadly DAO Token", 
             option::none(), 
             ctx
@@ -117,6 +117,11 @@ module spreadly::spreadly {
 
         transfer::share_object(distribution);
         transfer::public_freeze_object(metadata);
+    }
+
+    #[test_only]
+    public fun test_init(ctx: &mut TxContext) {
+        init(SPREADLY {}, ctx)
     }
 
     // Start liquidity phase
@@ -329,5 +334,31 @@ module spreadly::spreadly {
     fun is_claim_period_complete(distribution: &Distribution, clock: &Clock): bool {
         distribution.claim_start != 0 &&
         (clock::timestamp_ms(clock) - distribution.claim_start) >= CLAIM_PERIOD
+    }
+
+    // getters
+    #[test_only]
+    public fun get_phase(distribution: &Distribution): u8 {
+        distribution.phase
+    }
+
+    #[test_only]
+    public fun get_liquidity_period(): u64 {
+        LIQUIDITY_PERIOD
+    }
+
+    #[test_only]
+    public fun get_claim_period(): u64 {
+        CLAIM_PERIOD
+    }
+
+    #[test_only]
+    public fun get_max_sui_cap(): u64 {
+        MAX_SUI_CAP
+    }
+
+    #[test_only]
+    public fun get_phase_community_registration(): u8 {
+        PHASE_COMMUNITY_REGISTRATION
     }
 }
