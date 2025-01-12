@@ -1,4 +1,6 @@
 module spreadly::spreadly {
+    use std::ascii;
+    use sui::url;
     use sui::coin::{Self, Coin, TreasuryCap};
     use sui::tx_context::{Self, TxContext};
     use sui::balance::{Self, Balance};
@@ -95,7 +97,7 @@ module spreadly::spreadly {
             b"Spreadly", 
             b"SPRD", 
             b"Spreadly DAO Token", 
-            option::none(), 
+            option::some(url::new_unsafe(ascii::string(b"https://www.spreadly.xyz/spreadly.svg"))),
             ctx
         );
         
