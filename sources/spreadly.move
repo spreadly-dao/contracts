@@ -27,6 +27,7 @@ module spreadly::spreadly {
     const EMAX_CONTRIBUTION: u64 = 10;
     const ENO_LIQUIDITY: u64 = 11;
     const EZERO_CLAIMERS: u64 = 12;
+    const EINCORRECT_DEPOSIT: u64 = 13;
 
     // One-time witness type
     struct SPREADLY has drop {}
@@ -38,9 +39,11 @@ module spreadly::spreadly {
     const MAX_SUI_CONTRIBUTION: u64 = 1_000_000_000_000; // 1,000 SUI maximum per address
     const LIQUIDITY_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
     const CLAIM_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const LP_ALLOCATION: u64 = TOTAL_SUPPLY * 50 / 100; // 50% for LPs
+    const LP_ALLOCATION: u64 = TOTAL_SUPPLY * 45 / 100; // 45% for LPs
     const COMMUNITY_ALLOCATION: u64 = TOTAL_SUPPLY * 35 / 100; // 35% for community
+    const COMMUNITY_ALLOCATION_LOCK: u64 = 10_000_000_000; // 5% for core team
     const DEX_ALLOCATION: u64 = TOTAL_SUPPLY * 15 / 100; // 15% for DEX
+    const CORE_ALLOCATION: u64 = TOTAL_SUPPLY * 5 / 100; // 5% for core team
 
     // Distribution phases
     const PHASE_LIQUIDITY: u8 = 0;
@@ -62,6 +65,7 @@ module spreadly::spreadly {
         claimed_lp: VecSet<address>,
         registered_claimers: VecSet<address>,
         claimed_community: VecSet<address>,
+        community_claim_sui: Balance<SUI>,
     }
 
     struct LiquidityProvided has copy, drop {
@@ -94,12 +98,17 @@ module spreadly::spreadly {
         let (treasury_cap, metadata) = coin::create_currency(
             witness, 
             9, 
-            b"Spreadly", 
-            b"SPRD", 
-            b"Spreadly DAO Token", 
+            b"Spreadly",
+            b"SPRD",
+            b"Spreadly DAO Token",
             option::some(url::new_unsafe(ascii::string(b"https://www.spreadly.xyz/spreadly.svg"))),
             ctx
         );
+        
+        // Mint core team allocation and transfer to deployer
+        let deployer = tx_context::sender(ctx);
+        let core_tokens = coin::mint(&mut treasury_cap, CORE_ALLOCATION, ctx);
+        transfer::public_transfer(core_tokens, deployer);
         
         let distribution = Distribution {
             id: object::new(ctx),
@@ -115,6 +124,7 @@ module spreadly::spreadly {
             claimed_lp: vec_set::empty(),
             registered_claimers: vec_set::empty(),
             claimed_community: vec_set::empty(),
+            community_claim_sui: balance::zero(),
         };
 
         transfer::share_object(distribution);
@@ -222,6 +232,7 @@ module spreadly::spreadly {
     // Register for community allocation
     public entry fun register_for_community(
         distribution: &mut Distribution,
+        payment: Coin<SUI>,  // New parameter to accept SUI deposit
         clock: &Clock,
         ctx: &mut TxContext
     ) {
@@ -231,6 +242,9 @@ module spreadly::spreadly {
         let claimer = tx_context::sender(ctx);
         assert!(!vec_set::contains(&distribution.registered_claimers, &claimer), EALREADY_REGISTERED);
 
+        assert!(coin::value(&payment) == COMMUNITY_ALLOCATION_LOCK, EINCORRECT_DEPOSIT);
+
+        balance::join(&mut distribution.community_claim_sui, coin::into_balance(payment));
         vec_set::insert(&mut distribution.registered_claimers, claimer);
 
         event::emit(CommunityRegistered {
@@ -302,6 +316,11 @@ module spreadly::spreadly {
         let share = COMMUNITY_ALLOCATION / total_claimers;
         assert!(share <= distribution.community_remaining, EALREADY_CLAIMED);
 
+        // Return the 10 SUI deposit
+        let deposit_return = coin::from_balance(balance::split(&mut distribution.community_claim_sui, 10_000_000_000), ctx);
+        transfer::public_transfer(deposit_return, claimer);
+
+        // Mint and transfer SPRD tokens
         distribution.community_remaining = distribution.community_remaining - share;
         let tokens = coin::mint(&mut distribution.treasury_cap, share, ctx);
         transfer::public_transfer(tokens, claimer);
@@ -325,7 +344,7 @@ module spreadly::spreadly {
             });
         }
     }
-
+    
     // Helper functions
     fun is_liquidity_period_complete(distribution: &Distribution, clock: &Clock): bool {
         distribution.liquidity_start != 0 && (
@@ -479,5 +498,13 @@ module spreadly::spreadly {
 
     public fun get_community_allocation(): u64 {
         COMMUNITY_ALLOCATION
+    }
+
+    public fun get_core_allocation(): u64 {
+        CORE_ALLOCATION
+    }
+
+    public fun get_community_allocation_lock(): u64 {
+        COMMUNITY_ALLOCATION_LOCK
     }
 }
