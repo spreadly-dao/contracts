@@ -366,7 +366,7 @@ module spreadly::spreadly_tests {
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }
-
+ 
     #[test]
     fun test_lp_claim_single_provider() {
         let scenario = ts::begin(ADMIN);
