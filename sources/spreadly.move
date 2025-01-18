@@ -33,17 +33,17 @@ module spreadly::spreadly {
     struct SPREADLY has drop {}
 
     // Constants
-    const TOTAL_SUPPLY: u64 = 1_000_000_000_000_000; // 1 quadrillion
+    // const TOTAL_SUPPLY: u64 = 1_000_000_000_000_000_000;
     const MAX_SUI_CAP: u64 = 15_000_000_000_000; // 15,000 SUI
     const MIN_SUI_CONTRIBUTION: u64 = 1_000_000_000; // 1 SUI minimum
     const MAX_SUI_CONTRIBUTION: u64 = 1_000_000_000_000; // 1,000 SUI maximum per address
     const LIQUIDITY_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
     const CLAIM_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const LP_ALLOCATION: u64 = TOTAL_SUPPLY * 45 / 100; // 45% for LPs
-    const COMMUNITY_ALLOCATION: u64 = TOTAL_SUPPLY * 35 / 100; // 35% for community
-    const COMMUNITY_ALLOCATION_LOCK: u64 = 10_000_000_000; // 5% for core team
-    const DEX_ALLOCATION: u64 = TOTAL_SUPPLY * 15 / 100; // 15% for DEX
-    const CORE_ALLOCATION: u64 = TOTAL_SUPPLY * 5 / 100; // 5% for core team
+    const LP_ALLOCATION: u64 = 400_000_000_000_000_000; // 40% for LPs
+    const COMMUNITY_ALLOCATION: u64 = 350_000_000_000_000_000; // 35% for community
+    const COMMUNITY_ALLOCATION_LOCK: u64 = 5_000_000_000; // 5 SUI lock
+    const DEX_ALLOCATION: u64 = 150_000_000_000_000_000; // 15% for DEX
+    const CORE_ALLOCATION: u64 = 50_000_000_000_000_000; // 5% for core team
 
     // Distribution phases
     const PHASE_LIQUIDITY: u8 = 0;
@@ -98,8 +98,8 @@ module spreadly::spreadly {
         let (treasury_cap, metadata) = coin::create_currency(
             witness, 
             9, 
-            b"Spreadly",
             b"SPRD",
+            b"Spreadly",
             b"Spreadly DAO Token",
             option::some(url::new_unsafe(ascii::string(b"https://www.spreadly.xyz/spreadly.svg"))),
             ctx
@@ -271,6 +271,19 @@ module spreadly::spreadly {
         });
     }
 
+    // helper to calculate accurate share
+    fun calculate_share_ratio(sui_contributed: u64, total_sui: u64): u64 {
+        // Cast to u128 first to avoid overflow in multiplication
+        let bps_contributed = (((sui_contributed as u128)) * 10000) / ((total_sui as u128));
+        
+        // Apply that percentage to the allocation
+        let result = (bps_contributed * ((LP_ALLOCATION as u128))) / 10000;
+        
+        // Cast back to u64 for return
+        (result as u64)
+    }
+
+
     // Claim LP tokens
     public entry fun claim_lp_tokens(
         distribution: &mut Distribution,
@@ -285,7 +298,7 @@ module spreadly::spreadly {
 
         let sui_contributed = *table::borrow(&distribution.liquidity_providers, provider);
         let total_sui = balance::value(&distribution.sui_balance);
-        let lp_share = (sui_contributed * (LP_ALLOCATION / total_sui));
+        let lp_share = calculate_share_ratio(sui_contributed, total_sui);
 
         distribution.lp_remaining = distribution.lp_remaining - lp_share;
         let tokens = coin::mint(&mut distribution.treasury_cap, lp_share, ctx);
@@ -314,11 +327,9 @@ module spreadly::spreadly {
 
         let total_claimers = vec_set::size(&distribution.registered_claimers);
         let share = COMMUNITY_ALLOCATION / total_claimers;
+
         assert!(share <= distribution.community_remaining, EALREADY_CLAIMED);
 
-        // Return the 10 SUI deposit
-        let deposit_return = coin::from_balance(balance::split(&mut distribution.community_claim_sui, 10_000_000_000), ctx);
-        transfer::public_transfer(deposit_return, claimer);
 
         // Mint and transfer SPRD tokens
         distribution.community_remaining = distribution.community_remaining - share;
@@ -326,6 +337,10 @@ module spreadly::spreadly {
         transfer::public_transfer(tokens, claimer);
         vec_set::insert(&mut distribution.claimed_community, claimer);
 
+        // Return the SUI deposit
+        let deposit_return = coin::from_balance(balance::split(&mut distribution.community_claim_sui, COMMUNITY_ALLOCATION_LOCK), ctx);
+        transfer::public_transfer(deposit_return, claimer);
+        
         event::emit(TokensClaimed {
             claimer,
             amount: share,
@@ -343,6 +358,8 @@ module spreadly::spreadly {
                 timestamp: clock::timestamp_ms(clock)
             });
         }
+
+
     }
     
     // Helper functions
@@ -375,7 +392,7 @@ module spreadly::spreadly {
         let sui_contributed = *table::borrow(&distribution.liquidity_providers, provider);
         let total_sui = balance::value(&distribution.sui_balance);
         
-        (sui_contributed * (LP_ALLOCATION / total_sui))
+        (calculate_share_ratio(sui_contributed, total_sui))
     }
 
     public fun get_lp_info(

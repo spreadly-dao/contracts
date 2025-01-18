@@ -1,5 +1,6 @@
 #[test_only, allow(unused_const, unused_use)]
 module spreadly::spreadly_tests {
+    use std::debug;
     use std::vector;
     use sui::test_scenario::{Self as ts, Scenario};
     use sui::transfer;
