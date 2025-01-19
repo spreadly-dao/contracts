@@ -2,15 +2,11 @@ module spreadly::spreadly {
     use std::ascii;
     use sui::url;
     use sui::coin::{Self, Coin, TreasuryCap};
-    use sui::tx_context::{Self, TxContext};
     use sui::balance::{Self, Balance};
-    use sui::object::{Self, UID};
     use sui::clock::{Self, Clock};
-    use sui::transfer;
     use sui::table::{Self, Table};
     use sui::vec_set::{Self, VecSet};
     use sui::event;
-    use std::option;
     use sui::sui::SUI;
 
     // Error constants
@@ -30,7 +26,7 @@ module spreadly::spreadly {
     const EINCORRECT_DEPOSIT: u64 = 13;
 
     // One-time witness type
-    struct SPREADLY has drop {}
+    public struct SPREADLY has drop {}
 
     // Constants
     // const TOTAL_SUPPLY: u64 = 1_000_000_000_000_000_000;
@@ -51,7 +47,7 @@ module spreadly::spreadly {
     const PHASE_DISTRIBUTION: u8 = 2;
     const PHASE_COMPLETED: u8 = 3;
 
-    struct Distribution has key {
+    public struct Distribution has key {
         id: UID,
         treasury_cap: TreasuryCap<SPREADLY>,
         phase: u8,
@@ -68,26 +64,26 @@ module spreadly::spreadly {
         community_claim_sui: Balance<SUI>,
     }
 
-    struct LiquidityProvided has copy, drop {
+    public struct LiquidityProvided has copy, drop {
         provider: address,
         amount: u64,
         total_sui: u64,
         timestamp: u64
     }
 
-    struct CommunityRegistered has copy, drop {
+    public struct CommunityRegistered has copy, drop {
         claimer: address,
         timestamp: u64
     }
 
-    struct TokensClaimed has copy, drop {
+    public struct TokensClaimed has copy, drop {
         claimer: address,
         amount: u64,
         claim_type: u8, // 0 for LP, 1 for community
         timestamp: u64
     }
 
-    struct PhaseChanged has copy, drop {
+    public struct PhaseChanged has copy, drop {
         old_phase: u8,
         new_phase: u8,
         timestamp: u64
@@ -95,7 +91,7 @@ module spreadly::spreadly {
 
     // Initialize distribution
     fun init(witness: SPREADLY, ctx: &mut TxContext) {
-        let (treasury_cap, metadata) = coin::create_currency(
+        let (mut treasury_cap, metadata) = coin::create_currency(
             witness, 
             9, 
             b"SPRD",
