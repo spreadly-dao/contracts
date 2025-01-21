@@ -32,10 +32,10 @@ module spreadly::spreadly {
     // const TOTAL_SUPPLY: u64 = 1_000_000_000_000_000_000;
     const MAX_SUI_CAP: u64 = 15_000_000_000_000; // 15,000 SUI
     const MIN_SUI_CONTRIBUTION: u64 = 1_000_000_000; // 1 SUI minimum
-    const MAX_SUI_CONTRIBUTION: u64 = 1_000_000_000_000; // 1,000 SUI maximum per address
+    const MAX_SUI_CONTRIBUTION: u64 = 250_000_000_000; // 250 SUI maximum per address
     const LIQUIDITY_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
     const CLAIM_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const LP_ALLOCATION: u64 = 400_000_000_000_000_000; // 40% for LPs
+    const LP_ALLOCATION: u64 = 450_000_000_000_000_000; // 45% for LPs
     const COMMUNITY_ALLOCATION: u64 = 350_000_000_000_000_000; // 35% for community
     const COMMUNITY_ALLOCATION_LOCK: u64 = 5_000_000_000; // 5 SUI lock
     const DEX_ALLOCATION: u64 = 150_000_000_000_000_000; // 15% for DEX

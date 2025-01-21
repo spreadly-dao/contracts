@@ -28,9 +28,53 @@ module spreadly::spreadly_tests {
     const TEST_ADDR_14: address = @0x10D;
     const TEST_ADDR_15: address = @0x10E;
     const TEST_ADDR_16: address = @0x10F;
+    const TEST_ADDR_17: address = @0x110;
+    const TEST_ADDR_18: address = @0x111;
+    const TEST_ADDR_19: address = @0x112;
+    const TEST_ADDR_20: address = @0x113;
+    const TEST_ADDR_21: address = @0x114;
+    const TEST_ADDR_22: address = @0x115;
+    const TEST_ADDR_23: address = @0x116;
+    const TEST_ADDR_24: address = @0x117;
+    const TEST_ADDR_25: address = @0x118;
+    const TEST_ADDR_26: address = @0x119;
+    const TEST_ADDR_27: address = @0x11A;
+    const TEST_ADDR_28: address = @0x11B;
+    const TEST_ADDR_29: address = @0x11C;
+    const TEST_ADDR_30: address = @0x11D;
+    const TEST_ADDR_31: address = @0x11E;
+    const TEST_ADDR_32: address = @0x11F;
+    const TEST_ADDR_33: address = @0x120;
+    const TEST_ADDR_34: address = @0x121;
+    const TEST_ADDR_35: address = @0x122;
+    const TEST_ADDR_36: address = @0x123;
+    const TEST_ADDR_37: address = @0x124;
+    const TEST_ADDR_38: address = @0x125;
+    const TEST_ADDR_39: address = @0x126;
+    const TEST_ADDR_40: address = @0x127;
+    const TEST_ADDR_41: address = @0x128;
+    const TEST_ADDR_42: address = @0x129;
+    const TEST_ADDR_43: address = @0x12A;
+    const TEST_ADDR_44: address = @0x12B;
+    const TEST_ADDR_45: address = @0x12C;
+    const TEST_ADDR_46: address = @0x12D;
+    const TEST_ADDR_47: address = @0x12E;
+    const TEST_ADDR_48: address = @0x12F;
+    const TEST_ADDR_49: address = @0x130;
+    const TEST_ADDR_50: address = @0x131;
+    const TEST_ADDR_51: address = @0x132;
+    const TEST_ADDR_52: address = @0x133;
+    const TEST_ADDR_53: address = @0x134;
+    const TEST_ADDR_54: address = @0x135;
+    const TEST_ADDR_55: address = @0x136;
+    const TEST_ADDR_56: address = @0x137;
+    const TEST_ADDR_57: address = @0x138;
+    const TEST_ADDR_58: address = @0x139;
+    const TEST_ADDR_59: address = @0x13A;
+    const TEST_ADDR_60: address = @0x13B;
 
     const MIN_CONTRIBUTION: u64 = 1_000_000_000; // 1 SUI
-    const MAX_CONTRIBUTION: u64 = 1_000_000_000_000; // 1,000 SUI
+    const MAX_CONTRIBUTION: u64 = 250_000_000_000; // 1,000 SUI
     const TEN_SUI: u64 = 10_000_000_000;
 
     const EWRONG_PHASE: u64 = 0;
@@ -93,7 +137,51 @@ module spreadly::spreadly_tests {
             TEST_ADDR_13,
             TEST_ADDR_14,
             TEST_ADDR_15,
-            TEST_ADDR_16
+            TEST_ADDR_16,
+            TEST_ADDR_17,
+            TEST_ADDR_18,
+            TEST_ADDR_19,
+            TEST_ADDR_20,
+            TEST_ADDR_21,
+            TEST_ADDR_22,
+            TEST_ADDR_23,
+            TEST_ADDR_24,
+            TEST_ADDR_25,
+            TEST_ADDR_26,
+            TEST_ADDR_27,
+            TEST_ADDR_28,
+            TEST_ADDR_29,
+            TEST_ADDR_30,
+            TEST_ADDR_31,
+            TEST_ADDR_32,
+            TEST_ADDR_33,
+            TEST_ADDR_34,
+            TEST_ADDR_35,
+            TEST_ADDR_36,
+            TEST_ADDR_37,
+            TEST_ADDR_38,
+            TEST_ADDR_39,
+            TEST_ADDR_40,
+            TEST_ADDR_41,
+            TEST_ADDR_42,
+            TEST_ADDR_43,
+            TEST_ADDR_44,
+            TEST_ADDR_45,
+            TEST_ADDR_46,
+            TEST_ADDR_47,
+            TEST_ADDR_48,
+            TEST_ADDR_49,
+            TEST_ADDR_50,
+            TEST_ADDR_51,
+            TEST_ADDR_52,
+            TEST_ADDR_53,
+            TEST_ADDR_54,
+            TEST_ADDR_55,
+            TEST_ADDR_56,
+            TEST_ADDR_57,
+            TEST_ADDR_58,
+            TEST_ADDR_59,
+            TEST_ADDR_60
         ];
         while (vector::length(&addresses) > count) {
             vector::pop_back(&mut addresses);
@@ -125,7 +213,7 @@ module spreadly::spreadly_tests {
 
     // Add a helper function for dynamic account creation and contribution
     fun contribute_until_cap(scenario: &mut Scenario, clock: &Clock, contribution_amount: u64) {
-        let addresses = get_test_addresses(16);
+        let addresses = get_test_addresses(60);
         
         let mut total = 0;
         let max_cap = spreadly::get_max_sui_cap();
