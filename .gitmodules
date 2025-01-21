@@ -1,0 +1,12 @@
+[submodule "external/cetus-clmm-interface"]
+	path = external/cetus-clmm-interface
+	url = https://github.com/CetusProtocol/cetus-clmm-interface.git
+	branch = testnet-v1.25.0
+[submodule "external/move-stl"]
+	path = external/move-stl
+	url = https://github.com/CetusProtocol/move-stl.git
+	branch = testnet-v1.23.1
+[submodule "external/integer-mate"]
+	path = external/integer-mate
+	url = https://github.com/CetusProtocol/integer-mate.git
+	branch = testnet-v1.23.1
