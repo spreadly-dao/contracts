@@ -2,11 +2,16 @@
 module spreadly::spreadly_tests {
     use std::debug;
     use sui::test_scenario::{Self as ts, Scenario};
-    use sui::coin::{Self, Coin};
+    use sui::coin::{Self, Coin, CoinMetadata};
     use sui::clock::{Self, Clock};
     use sui::test_utils;
     use sui::sui::SUI;
     use std::string;
+        
+    use cetus_clmm::config::{Self, GlobalConfig, AdminCap};
+    use cetus_clmm::factory;
+    use cetus_clmm::factory::Pools;
+
     
     use spreadly::spreadly::{Self, Distribution, SPREADLY};
 
@@ -108,12 +113,34 @@ module spreadly::spreadly_tests {
         spreadly::test_init(ctx);
     }
 
+    #[test_only]
+    fun create_test_pool_dependencies(scenario: &mut Scenario) {
+        ts::next_tx(scenario, ADMIN);
+        let ctx = ts::ctx(scenario);
+        
+        // Use their test helpers
+        let (admin_cap, global_config) = config::new_global_config_for_test(ctx, 10_000);
+        let pools = factory::new_pools_for_test(ctx);
+
+        // Share the objects
+        transfer::public_transfer(admin_cap, ADMIN);
+        transfer::public_share_object(global_config);
+        transfer::public_share_object(pools);
+    }
+
     // Helper function to set up test scenario
     fun setup_test(scenario: &mut Scenario, clock: &mut Clock) {
         // Start with admin account and initialize module
+        
         ts::next_tx(scenario, ADMIN);
         {
             init_for_testing(ts::ctx(scenario));
+        };
+
+        // Create and share pool dependencies
+        ts::next_tx(scenario, ADMIN);
+        {
+            create_test_pool_dependencies(scenario);
         };
 
         // Advance clock to start with non-zero time
@@ -212,7 +239,15 @@ module spreadly::spreadly_tests {
     }
 
     // Add a helper function for dynamic account creation and contribution
-    fun contribute_until_cap(scenario: &mut Scenario, clock: &Clock, contribution_amount: u64) {
+    fun contribute_until_cap(
+        scenario: &mut Scenario, 
+        config: &GlobalConfig,
+        pools: &mut Pools,
+        sprd_metadata: &CoinMetadata<SPREADLY>,
+        sui_metadata: &CoinMetadata<SUI>,
+        clock: &Clock, 
+        contribution_amount: u64
+    ) {
         let addresses = get_test_addresses(60);
         
         let mut total = 0;
@@ -229,20 +264,25 @@ module spreadly::spreadly_tests {
             assert!(i < vector::length(&addresses), 1);
             let test_address = *vector::borrow(&addresses, i);
             
-            // Give extra SUI for community registration
             ts::next_tx(scenario, test_address);
             {
                 let mut distribution = ts::take_shared<Distribution>(scenario);
-                // Mint 11 SUI (1 extra for community registration)
                 let mut coin = coin::mint_for_testing<SUI>(amount + (spreadly::get_community_allocation_lock() * 2), ts::ctx(scenario));
-                // Split off the community registration amount
                 let registration_coin = coin::split(&mut coin, spreadly::get_community_allocation_lock(), ts::ctx(scenario));
                 let secondary_registration = coin::split(&mut coin, spreadly::get_community_allocation_lock(), ts::ctx(scenario));
-                // Save it in test scenario for later
                 transfer::public_transfer(registration_coin, test_address);
                 transfer::public_transfer(secondary_registration, test_address);
-                // Use remaining amount for liquidity
-                spreadly::provide_liquidity(&mut distribution, coin, clock, ts::ctx(scenario));
+                
+                spreadly::provide_liquidity(
+                    &mut distribution, 
+                    coin,
+                    config,
+                    pools,
+                    sprd_metadata,
+                    sui_metadata, 
+                    clock, 
+                    ts::ctx(scenario)
+                );
                 ts::return_shared(distribution);
             };
             
@@ -263,8 +303,26 @@ module spreadly::spreadly_tests {
             ts::return_shared(distribution);
         };
 
+        let global_config = ts::take_shared<GlobalConfig>(scenario);
+        let mut pools = ts::take_shared<Pools>(scenario);
+        let sprd_metadata = ts::take_immutable<CoinMetadata<SPREADLY>>(scenario);
+        let sui_metadata = ts::take_shared<CoinMetadata<SUI>>(scenario);
+
         // Fill up to max cap using multiple contributors
-        contribute_until_cap(scenario, clock, MAX_CONTRIBUTION);
+        contribute_until_cap(
+            scenario, 
+            &global_config,
+            &mut pools,
+            &sprd_metadata,
+            &sui_metadata,
+            clock, 
+            MAX_CONTRIBUTION
+        );
+
+        ts::return_shared(global_config);
+        ts::return_shared(pools);
+        ts::return_shared(sprd_metadata);
+        ts::return_shared(sui_metadata);
     }
 
     #[test]
@@ -323,9 +381,26 @@ module spreadly::spreadly_tests {
         ts::next_tx(&mut scenario, TEST_ADDR_1);
         {
             let mut distribution = ts::take_shared<Distribution>(&scenario);
+            let global_config = ts::take_shared<GlobalConfig>(&scenario);
+            let mut pools = ts::take_shared<Pools>(&scenario);
+            let sprd_metadata = ts::take_immutable<CoinMetadata<SPREADLY>>(&scenario);
+            let sui_metadata = ts::take_immutable<CoinMetadata<SUI>>(&scenario);
             let coin = coin::mint_for_testing<SUI>(MIN_CONTRIBUTION - 1, ts::ctx(&mut scenario));
-            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(
+                &mut distribution,
+                coin,
+                &global_config,
+                &mut pools,
+                &sprd_metadata,
+                &sui_metadata,
+                &clock,
+                ts::ctx(&mut scenario)
+            );
             ts::return_shared(distribution);
+            ts::return_shared(global_config);
+            ts::return_shared(pools);
+            ts::return_shared(sprd_metadata);
+            ts::return_shared(sui_metadata);
         };
 
         clock::destroy_for_testing(clock);
@@ -351,9 +426,29 @@ module spreadly::spreadly_tests {
         ts::next_tx(&mut scenario, TEST_ADDR_1);
         {
             let mut distribution = ts::take_shared<Distribution>(&scenario);
+            let global_config = ts::take_shared<GlobalConfig>(&scenario);
+            let mut pools = ts::take_shared<Pools>(&scenario);
+            let sprd_metadata = ts::take_immutable<CoinMetadata<SPREADLY>>(&scenario);
+            let sui_metadata = ts::take_immutable<CoinMetadata<SUI>>(&scenario);
+
             let coin = coin::mint_for_testing<SUI>(spreadly::get_max_sui_contribution() + 1, ts::ctx(&mut scenario));
-            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            
+            spreadly::provide_liquidity(
+                &mut distribution,
+                coin,
+                &global_config,
+                &mut pools,
+                &sprd_metadata,
+                &sui_metadata,
+                &clock,
+                ts::ctx(&mut scenario)
+            );
+
             ts::return_shared(distribution);
+            ts::return_shared(global_config);
+            ts::return_shared(pools);
+            ts::return_shared(sprd_metadata);
+            ts::return_shared(sui_metadata);
         };
 
         clock::destroy_for_testing(clock);
@@ -393,9 +488,27 @@ module spreadly::spreadly_tests {
         ts::next_tx(&mut scenario, TEST_ADDR_1);
         {
             let mut distribution = ts::take_shared<Distribution>(&scenario);
+            let global_config = ts::take_shared<GlobalConfig>(&scenario);
+            let mut pools = ts::take_shared<Pools>(&scenario);
+            let sprd_metadata = ts::take_immutable<CoinMetadata<SPREADLY>>(&scenario);
+            let sui_metadata = ts::take_immutable<CoinMetadata<SUI>>(&scenario);
             let coin = coin::mint_for_testing<SUI>(spreadly::get_max_sui_contribution(), ts::ctx(&mut scenario));
-            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(
+                &mut distribution,
+                coin,
+                &global_config,
+                &mut pools,
+                &sprd_metadata,
+                &sui_metadata,
+                &clock,
+                ts::ctx(&mut scenario)
+            );
+
             ts::return_shared(distribution);
+            ts::return_shared(global_config);
+            ts::return_shared(pools);
+            ts::return_shared(sprd_metadata);
+            ts::return_shared(sui_metadata);
         };
 
         clock::destroy_for_testing(clock);
@@ -449,9 +562,27 @@ module spreadly::spreadly_tests {
         ts::next_tx(&mut scenario, TEST_ADDR_1);
         {
             let mut distribution = ts::take_shared<Distribution>(&scenario);
+            let global_config = ts::take_shared<GlobalConfig>(&scenario);
+            let mut pools = ts::take_shared<Pools>(&scenario);
+            let sprd_metadata = ts::take_immutable<CoinMetadata<SPREADLY>>(&scenario);
+            let sui_metadata = ts::take_immutable<CoinMetadata<SUI>>(&scenario);
             let coin = coin::mint_for_testing<SUI>(TEN_SUI, ts::ctx(&mut scenario));
-            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(
+                &mut distribution,
+                coin,
+                &global_config,
+                &mut pools,
+                &sprd_metadata,
+                &sui_metadata,
+                &clock,
+                ts::ctx(&mut scenario)
+            );
+
             ts::return_shared(distribution);
+            ts::return_shared(global_config);
+            ts::return_shared(pools);
+            ts::return_shared(sprd_metadata);
+            ts::return_shared(sui_metadata);
         };
 
         // Try to claim during liquidity phase (should fail)
@@ -632,9 +763,27 @@ module spreadly::spreadly_tests {
         ts::next_tx(&mut scenario, TEST_ADDR_1);
         {
             let mut distribution = ts::take_shared<Distribution>(&scenario);
+            let global_config = ts::take_shared<GlobalConfig>(&scenario);
+            let mut pools = ts::take_shared<Pools>(&scenario);
+            let sprd_metadata = ts::take_immutable<CoinMetadata<SPREADLY>>(&scenario);
+            let sui_metadata = ts::take_immutable<CoinMetadata<SUI>>(&scenario);
             let coin = coin::mint_for_testing<SUI>(contribution1, ts::ctx(&mut scenario));
-            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(
+                &mut distribution,
+                coin,
+                &global_config,
+                &mut pools,
+                &sprd_metadata,
+                &sui_metadata,
+                &clock,
+                ts::ctx(&mut scenario)
+            );
+
             ts::return_shared(distribution);
+            ts::return_shared(global_config);
+            ts::return_shared(pools);
+            ts::return_shared(sprd_metadata);
+            ts::return_shared(sui_metadata);
         };
 
         // Advance clock
@@ -644,9 +793,27 @@ module spreadly::spreadly_tests {
         ts::next_tx(&mut scenario, TEST_ADDR_1);
         {
             let mut distribution = ts::take_shared<Distribution>(&scenario);
+            let global_config = ts::take_shared<GlobalConfig>(&scenario);
+            let mut pools = ts::take_shared<Pools>(&scenario);
+            let sprd_metadata = ts::take_immutable<CoinMetadata<SPREADLY>>(&scenario);
+            let sui_metadata = ts::take_immutable<CoinMetadata<SUI>>(&scenario);
             let coin = coin::mint_for_testing<SUI>(contribution2, ts::ctx(&mut scenario));
-            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(
+                &mut distribution,
+                coin,
+                &global_config,
+                &mut pools,
+                &sprd_metadata,
+                &sui_metadata,
+                &clock,
+                ts::ctx(&mut scenario)
+            );
+
             ts::return_shared(distribution);
+            ts::return_shared(global_config);
+            ts::return_shared(pools);
+            ts::return_shared(sprd_metadata);
+            ts::return_shared(sui_metadata);
         };
 
         // Advance clock again
@@ -656,9 +823,27 @@ module spreadly::spreadly_tests {
         ts::next_tx(&mut scenario, TEST_ADDR_1);
         {
             let mut distribution = ts::take_shared<Distribution>(&scenario);
+            let global_config = ts::take_shared<GlobalConfig>(&scenario);
+            let mut pools = ts::take_shared<Pools>(&scenario);
+            let sprd_metadata = ts::take_immutable<CoinMetadata<SPREADLY>>(&scenario);
+            let sui_metadata = ts::take_immutable<CoinMetadata<SUI>>(&scenario);
             let coin = coin::mint_for_testing<SUI>(contribution3, ts::ctx(&mut scenario));
-            spreadly::provide_liquidity(&mut distribution, coin, &clock, ts::ctx(&mut scenario));
+            spreadly::provide_liquidity(
+                &mut distribution,
+                coin,
+                &global_config,
+                &mut pools,
+                &sprd_metadata,
+                &sui_metadata,
+                &clock,
+                ts::ctx(&mut scenario)
+            );
+
             ts::return_shared(distribution);
+            ts::return_shared(global_config);
+            ts::return_shared(pools);
+            ts::return_shared(sprd_metadata);
+            ts::return_shared(sui_metadata);
         };
 
         clock::destroy_for_testing(clock);

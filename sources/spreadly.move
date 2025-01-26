@@ -1,13 +1,19 @@
 module spreadly::spreadly {
     use std::ascii;
+    use std::string::{Self};
+
     use sui::url;
-    use sui::coin::{Self, Coin, TreasuryCap};
+    use sui::coin::{Self, Coin, TreasuryCap, CoinMetadata};
     use sui::balance::{Self, Balance};
     use sui::clock::{Self, Clock};
     use sui::table::{Self, Table};
     use sui::vec_set::{Self, VecSet};
     use sui::event;
     use sui::sui::SUI;
+
+    use cetus_clmm::config::GlobalConfig;
+    use cetus_clmm::factory::Pools;
+    use cetus_clmm::pool_creator;
 
     // Error constants
     const EWRONG_PHASE: u64 = 0;
@@ -153,6 +159,10 @@ module spreadly::spreadly {
     public entry fun provide_liquidity(
         distribution: &mut Distribution,
         payment: Coin<SUI>,
+        config: &GlobalConfig,        // Add Cetus params
+        pools: &mut Pools,
+        sprd_metadata: &CoinMetadata<SPREADLY>,
+        sui_metadata: &CoinMetadata<SUI>,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
@@ -197,13 +207,74 @@ module spreadly::spreadly {
         });
 
         if (total_after >= MAX_SUI_CAP) {
-            end_liquidity_period(distribution, clock);
+            end_liquidity_period(
+                distribution,
+                config,
+                pools,
+                sprd_metadata,
+                sui_metadata,
+                clock,
+                ctx
+            );
         }
     }
 
-    public entry fun end_liquidity_period(
-        distribution: &mut Distribution, 
+    fun create_initial_pool(
+        treasury_cap: &mut TreasuryCap<SPREADLY>,
+        sui_balance: Balance<SUI>,
+        config: &GlobalConfig,
+        pools: &mut Pools,
+        sprd_metadata: &CoinMetadata<SPREADLY>,  // Add metadata parameters
+        sui_metadata: &CoinMetadata<SUI>,
         clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        let sprd_coins = coin::mint(treasury_cap, DEX_ALLOCATION, ctx);
+        let sui_coins = coin::from_balance(sui_balance, ctx);
+        
+        let tick_spacing = 60;
+        let (tick_lower, tick_upper) = pool_creator::full_range_tick_range(tick_spacing);
+        
+        let initial_price = (coin::value(&sui_coins) as u128) * ((1u128 << 64) / (DEX_ALLOCATION as u128));
+
+        let (position_obj, remaining_sprd, remaining_sui) = pool_creator::create_pool_v2<SPREADLY, SUI>(
+            config,
+            pools,
+            tick_spacing,
+            initial_price,
+            string::utf8(b"SPRD/SUI Pool"),
+            tick_lower,
+            tick_upper,
+            sprd_coins,
+            sui_coins,
+            sprd_metadata,  // Use passed in metadata
+            sui_metadata,
+            true,
+            clock,
+            ctx
+        );
+
+        // Assert no remaining tokens - all should be in pool
+        assert!(coin::value(&remaining_sprd) == 0, ENO_LIQUIDITY);
+        assert!(coin::value(&remaining_sui) == 0, ENO_LIQUIDITY);
+        
+        // Clean up zero coins
+        coin::destroy_zero(remaining_sprd);
+        coin::destroy_zero(remaining_sui);
+
+
+        // Burn LP
+        transfer::public_transfer(position_obj, @0x0);
+    }
+
+    public entry fun end_liquidity_period(
+        distribution: &mut Distribution,
+        config: &GlobalConfig,
+        pools: &mut Pools,
+        sprd_metadata: &CoinMetadata<SPREADLY>,  // Add metadata parameters
+        sui_metadata: &CoinMetadata<SUI>, 
+        clock: &Clock,
+        ctx: &mut TxContext
     ) {
         assert!(distribution.phase == PHASE_LIQUIDITY, EWRONG_PHASE);
         let total_sui = balance::value(&distribution.sui_balance);
@@ -214,6 +285,18 @@ module spreadly::spreadly {
             EPERIOD_NOT_COMPLETE
         );
         assert!(total_sui > 0, ENO_LIQUIDITY);
+
+        let sui_for_pool = balance::withdraw_all(&mut distribution.sui_balance);
+        create_initial_pool(
+            &mut distribution.treasury_cap,
+            sui_for_pool,
+            config,
+            pools,
+            sprd_metadata,  // Pass metadata to helper function
+            sui_metadata,
+            clock,
+            ctx
+        );
 
         distribution.phase = PHASE_COMMUNITY_REGISTRATION;
         distribution.claim_start = clock::timestamp_ms(clock);
