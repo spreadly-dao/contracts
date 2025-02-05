@@ -4,13 +4,9 @@ version = "0.0.1"
 edition = "2024.beta"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet" }
-CetusClmm = { local = "./external/cetus-clmm-interface/sui/cetus_clmm" }  # relative to Move.toml location
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet", override = true }
 
-# [dependencies.CetusClmm]
-# git = "https://github.com/CetusProtocol/cetus-clmm-interface.git"
-# subdir = "sui/cetus_clmm"
-# rev = "testnet-v1.25.0"
+CetusClmm = { git = "https://github.com/CetusProtocol/cetus-clmm-interface.git", subdir = "sui/cetus_clmm", rev = "testnet-v1.25.0" }
 
 [addresses]
 spreadly = "0x0"
