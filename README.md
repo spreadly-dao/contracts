@@ -8,7 +8,7 @@ This document provides the essential contract addresses for interacting with Spr
 // Package address
 spreadly_package = "0x60ad85f51976b6c8d29c53d3dd9ea0d96c3c27bb117b68ec52452e49c2aae0c8"
 
-// Distribution contract
+// Distribution object
 distribution = "0x3541468b3777f93b29c0939ebfeb2ecbaa78a864d6a8210e03ddf08b545b4fb9"
 ```
 
