@@ -30,6 +30,7 @@ module spreadly::spreadly {
     const ENO_LIQUIDITY: u64 = 11;
     const EZERO_CLAIMERS: u64 = 12;
     const EINCORRECT_DEPOSIT: u64 = 13;
+    const EINVALID_MATH: u64 = 14;
 
     // One-time witness type
     public struct SPREADLY has drop {}
@@ -59,7 +60,8 @@ module spreadly::spreadly {
         phase: u8,
         liquidity_start: u64,
         claim_start: u64,
-        sui_balance: Balance<SUI>,
+        lp_sui_balance: Balance<SUI>,
+        final_lp_sui: u64,
         lp_remaining: u64,
         community_remaining: u64,
         dex_remaining: u64,
@@ -67,7 +69,7 @@ module spreadly::spreadly {
         claimed_lp: VecSet<address>,
         registered_claimers: VecSet<address>,
         claimed_community: VecSet<address>,
-        community_claim_sui: Balance<SUI>,
+        community_claim_sui_balance: Balance<SUI>,
     }
 
     public struct LiquidityProvided has copy, drop {
@@ -118,7 +120,8 @@ module spreadly::spreadly {
             phase: PHASE_LIQUIDITY,
             liquidity_start: 0,
             claim_start: 0,
-            sui_balance: balance::zero(),
+            lp_sui_balance: balance::zero(),
+            final_lp_sui: 0,
             lp_remaining: LP_ALLOCATION,
             community_remaining: COMMUNITY_ALLOCATION,
             dex_remaining: DEX_ALLOCATION,
@@ -126,7 +129,7 @@ module spreadly::spreadly {
             claimed_lp: vec_set::empty(),
             registered_claimers: vec_set::empty(),
             claimed_community: vec_set::empty(),
-            community_claim_sui: balance::zero(),
+            community_claim_sui_balance: balance::zero(),
         };
 
         transfer::share_object(distribution);
@@ -159,7 +162,7 @@ module spreadly::spreadly {
     public entry fun provide_liquidity(
         distribution: &mut Distribution,
         payment: Coin<SUI>,
-        config: &GlobalConfig,        // Add Cetus params
+        config: &GlobalConfig,
         pools: &mut Pools,
         sprd_metadata: &CoinMetadata<SPREADLY>,
         sui_metadata: &CoinMetadata<SUI>,
@@ -185,7 +188,7 @@ module spreadly::spreadly {
         // Maximum per-address contribution check
         assert!(total_contribution <= MAX_SUI_CONTRIBUTION, EMAX_CONTRIBUTION);
 
-        let total_after = balance::value(&distribution.sui_balance) + sui_amount;
+        let total_after = balance::value(&distribution.lp_sui_balance) + sui_amount;
         // asserts no overflow of max cap
         assert!(total_after <= MAX_SUI_CAP, EMAX_SUI_CAP);
 
@@ -197,7 +200,7 @@ module spreadly::spreadly {
             *current = *current + sui_amount;
         };
 
-        balance::join(&mut distribution.sui_balance, coin::into_balance(payment));
+        balance::join(&mut distribution.lp_sui_balance, coin::into_balance(payment));
 
         event::emit(LiquidityProvided {
             provider,
@@ -219,9 +222,60 @@ module spreadly::spreadly {
         }
     }
 
+    #[test_only]
+    public fun test_provide_liquidity(
+        distribution: &mut Distribution,
+        payment: Coin<SUI>,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(distribution.phase == PHASE_LIQUIDITY, EWRONG_PHASE);
+        assert!(distribution.liquidity_start != 0, EPERIOD_NOT_COMPLETE);
+        assert!(!is_liquidity_period_complete(distribution, clock), EPERIOD_ENDED);
+
+        let sui_amount = coin::value(&payment);
+        // Minimum contribution check
+        assert!(sui_amount >= MIN_SUI_CONTRIBUTION, EMINIMUM_CONTRIBUTION);
+
+        let provider = tx_context::sender(ctx);
+        let current_contribution = if (table::contains(&distribution.liquidity_providers, provider)) {
+            *table::borrow(&distribution.liquidity_providers, provider)
+        } else {
+            0
+        };
+
+        let total_contribution = current_contribution + sui_amount;
+        // Maximum per-address contribution check
+        assert!(total_contribution <= MAX_SUI_CONTRIBUTION, EMAX_CONTRIBUTION);
+
+        let total_after = balance::value(&distribution.lp_sui_balance) + sui_amount;
+        // asserts no overflow of max cap
+        assert!(total_after <= MAX_SUI_CAP, EMAX_SUI_CAP);
+
+        // Update provider's contribution
+        if (current_contribution == 0) {
+            table::add(&mut distribution.liquidity_providers, provider, sui_amount);
+        } else {
+            let current = table::borrow_mut(&mut distribution.liquidity_providers, provider);
+            *current = *current + sui_amount;
+        };
+
+        balance::join(&mut distribution.lp_sui_balance, coin::into_balance(payment));
+
+        event::emit(LiquidityProvided {
+            provider,
+            amount: sui_amount,
+            total_sui: total_after,  // Now using balance value
+            timestamp: clock::timestamp_ms(clock)
+        });
+
+        if (total_after >= MAX_SUI_CAP) {
+            test_end_liquidity_period(distribution, clock, ctx);
+        }
+    }
+
     fun create_initial_pool(
-        treasury_cap: &mut TreasuryCap<SPREADLY>,
-        sui_balance: Balance<SUI>,
+        distribution: &mut Distribution,
         config: &GlobalConfig,
         pools: &mut Pools,
         sprd_metadata: &CoinMetadata<SPREADLY>,  // Add metadata parameters
@@ -229,13 +283,15 @@ module spreadly::spreadly {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        let sprd_coins = coin::mint(treasury_cap, DEX_ALLOCATION, ctx);
-        let sui_coins = coin::from_balance(sui_balance, ctx);
+        distribution.final_lp_sui = balance::value(&distribution.lp_sui_balance);
+        let sprd_coins = coin::mint(&mut distribution.treasury_cap, DEX_ALLOCATION, ctx);
+        let sui_coins = coin::from_balance(balance::withdraw_all(&mut distribution.lp_sui_balance), ctx);
         
         let tick_spacing = 60;
         let (tick_lower, tick_upper) = pool_creator::full_range_tick_range(tick_spacing);
         
         let initial_price = (coin::value(&sui_coins) as u128) * ((1u128 << 64) / (DEX_ALLOCATION as u128));
+
 
         let (position_obj, remaining_sprd, remaining_sui) = pool_creator::create_pool_v2<SPREADLY, SUI>(
             config,
@@ -267,17 +323,38 @@ module spreadly::spreadly {
         transfer::public_transfer(position_obj, @0x0);
     }
 
+    #[test_only]
+    fun test_create_initial_pool(
+        distribution: &mut Distribution,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        distribution.final_lp_sui = balance::value(&distribution.lp_sui_balance);
+        let sprd_coins = coin::mint(&mut distribution.treasury_cap, DEX_ALLOCATION, ctx);
+        let sui_coins = coin::from_balance(balance::withdraw_all(&mut distribution.lp_sui_balance), ctx);
+
+        // mock pool creation
+        balance::destroy_for_testing(coin::into_balance(sprd_coins));
+        balance::destroy_for_testing(coin::into_balance(sui_coins));
+
+        event::emit(PhaseChanged {
+            old_phase: PHASE_LIQUIDITY,
+            new_phase: PHASE_COMMUNITY_REGISTRATION,
+            timestamp: clock::timestamp_ms(clock)
+        });
+    }
+
     public entry fun end_liquidity_period(
         distribution: &mut Distribution,
         config: &GlobalConfig,
         pools: &mut Pools,
-        sprd_metadata: &CoinMetadata<SPREADLY>,  // Add metadata parameters
+        sprd_metadata: &CoinMetadata<SPREADLY>,
         sui_metadata: &CoinMetadata<SUI>, 
         clock: &Clock,
         ctx: &mut TxContext
     ) {
         assert!(distribution.phase == PHASE_LIQUIDITY, EWRONG_PHASE);
-        let total_sui = balance::value(&distribution.sui_balance);
+        let total_sui = balance::value(&distribution.lp_sui_balance);
         
         assert!(
             total_sui >= MAX_SUI_CAP || 
@@ -286,13 +363,11 @@ module spreadly::spreadly {
         );
         assert!(total_sui > 0, ENO_LIQUIDITY);
 
-        let sui_for_pool = balance::withdraw_all(&mut distribution.sui_balance);
         create_initial_pool(
-            &mut distribution.treasury_cap,
-            sui_for_pool,
+            distribution,
             config,
             pools,
-            sprd_metadata,  // Pass metadata to helper function
+            sprd_metadata,
             sui_metadata,
             clock,
             ctx
@@ -308,10 +383,42 @@ module spreadly::spreadly {
         });
     }
 
+    #[test_only]
+    public fun test_end_liquidity_period(
+        distribution: &mut Distribution,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(distribution.phase == PHASE_LIQUIDITY, EWRONG_PHASE);
+        let total_sui = balance::value(&distribution.lp_sui_balance);
+        
+        assert!(
+            total_sui >= MAX_SUI_CAP || 
+            is_liquidity_period_complete(distribution, clock),
+            EPERIOD_NOT_COMPLETE
+        );
+        assert!(total_sui > 0, ENO_LIQUIDITY);
+
+        test_create_initial_pool(
+            distribution,
+            clock, 
+            ctx)
+        ;
+
+        distribution.phase = PHASE_COMMUNITY_REGISTRATION;
+        distribution.claim_start = clock::timestamp_ms(clock);
+
+        event::emit(PhaseChanged {
+            old_phase: PHASE_LIQUIDITY,
+            new_phase: PHASE_COMMUNITY_REGISTRATION,
+            timestamp: clock::timestamp_ms(clock)
+        });
+    }
+
     // Register for community allocation
     public entry fun register_for_community(
         distribution: &mut Distribution,
-        payment: Coin<SUI>,  // New parameter to accept SUI deposit
+        payment: Coin<SUI>,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
@@ -323,7 +430,7 @@ module spreadly::spreadly {
 
         assert!(coin::value(&payment) == COMMUNITY_ALLOCATION_LOCK, EINCORRECT_DEPOSIT);
 
-        balance::join(&mut distribution.community_claim_sui, coin::into_balance(payment));
+        balance::join(&mut distribution.community_claim_sui_balance, coin::into_balance(payment));
         vec_set::insert(&mut distribution.registered_claimers, claimer);
 
         event::emit(CommunityRegistered {
@@ -352,6 +459,7 @@ module spreadly::spreadly {
 
     // helper to calculate accurate share
     fun calculate_share_ratio(sui_contributed: u64, total_sui: u64): u64 {
+        assert!(total_sui > 0, EINVALID_MATH);
         // Cast to u128 first to avoid overflow in multiplication
         let bps_contributed = (((sui_contributed as u128)) * 10000) / ((total_sui as u128));
         
@@ -376,8 +484,7 @@ module spreadly::spreadly {
         assert!(!vec_set::contains(&distribution.claimed_lp, &provider), EALREADY_CLAIMED);
 
         let sui_contributed = *table::borrow(&distribution.liquidity_providers, provider);
-        let total_sui = balance::value(&distribution.sui_balance);
-        let lp_share = calculate_share_ratio(sui_contributed, total_sui);
+        let lp_share = calculate_share_ratio(sui_contributed, distribution.final_lp_sui);
 
         distribution.lp_remaining = distribution.lp_remaining - lp_share;
         let tokens = coin::mint(&mut distribution.treasury_cap, lp_share, ctx);
@@ -417,7 +524,7 @@ module spreadly::spreadly {
         vec_set::insert(&mut distribution.claimed_community, claimer);
 
         // Return the SUI deposit
-        let deposit_return = coin::from_balance(balance::split(&mut distribution.community_claim_sui, COMMUNITY_ALLOCATION_LOCK), ctx);
+        let deposit_return = coin::from_balance(balance::split(&mut distribution.community_claim_sui_balance, COMMUNITY_ALLOCATION_LOCK), ctx);
         transfer::public_transfer(deposit_return, claimer);
         
         event::emit(TokensClaimed {
@@ -444,7 +551,7 @@ module spreadly::spreadly {
     // Helper functions
     fun is_liquidity_period_complete(distribution: &Distribution, clock: &Clock): bool {
         distribution.liquidity_start != 0 && (
-            balance::value(&distribution.sui_balance) >= MAX_SUI_CAP || 
+            balance::value(&distribution.lp_sui_balance) >= MAX_SUI_CAP || 
             (clock::timestamp_ms(clock) - distribution.liquidity_start) >= LIQUIDITY_PERIOD
         )
     }
@@ -469,9 +576,8 @@ module spreadly::spreadly {
         };
 
         let sui_contributed = *table::borrow(&distribution.liquidity_providers, provider);
-        let total_sui = balance::value(&distribution.sui_balance);
         
-        (calculate_share_ratio(sui_contributed, total_sui))
+        (calculate_share_ratio(sui_contributed, distribution.final_lp_sui))
     }
 
     public fun get_lp_info(
@@ -518,7 +624,7 @@ module spreadly::spreadly {
 
         (
             distribution.phase,
-            balance::value(&distribution.sui_balance),
+            balance::value(&distribution.lp_sui_balance),
             distribution.lp_remaining,
             distribution.community_remaining,
             distribution.dex_remaining,
@@ -545,7 +651,7 @@ module spreadly::spreadly {
     }
 
     public fun get_total_sui_raised(distribution: &Distribution): u64 {
-        balance::value(&distribution.sui_balance)
+        balance::value(&distribution.lp_sui_balance)
     }
 
     public fun get_total_registered_claimers(distribution: &Distribution): u64 {
