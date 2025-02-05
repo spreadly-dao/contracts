@@ -537,15 +537,13 @@ module spreadly::spreadly {
         // Check if distribution is complete
         if (vec_set::size(&distribution.claimed_community) == total_claimers) {
             distribution.phase = PHASE_COMPLETED;
-            
+
             event::emit(PhaseChanged {
                 old_phase: PHASE_DISTRIBUTION,
                 new_phase: PHASE_COMPLETED,
                 timestamp: clock::timestamp_ms(clock)
             });
         }
-
-
     }
     
     // Helper functions
