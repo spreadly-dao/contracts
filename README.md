@@ -1,5 +1,4 @@
 # Spreadly Testnet Addresses
-================================
 
 This document provides the essential addresses for interacting with Spreadly on the Sui Testnet network.
 
