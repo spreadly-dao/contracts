@@ -39,10 +39,4 @@ sui_metadata = "0x587c29de216efd4219573e08a1f6964d4fa7cb714518c2c8a0f29abfa26432
 clock = "0x6"
 ```
 
-## Payment
-
-Payments are accepted in SUI coins (`Coin<SUI>`). The amount is variable based on the specific operation.
-
----
-
 **Note**: These addresses are specific to the Sui Testnet.
