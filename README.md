@@ -4,7 +4,7 @@ This document provides the essential addresses for interacting with Spreadly on 
 
 ## Spreadly Core Addresses
 
-*   Spreadly Package: `0x60ad85f51976b6c8d29c53d3dd9ea0d96c3c27bb117b68ec52452e49c2aae0c8`
+*   Spreadly Package: `0x60ad85f51976b6c8d29c53d3dd9ea0d96c3d27bb117b68ec52452e49c2aae0c8`
 *   Distribution Object: `0x3541468b3777f93b29c0939ebfeb2ecbaa78a864d6a8210e03ddf08b545b4fb9`
 
 ## Cetus Core Addresses
