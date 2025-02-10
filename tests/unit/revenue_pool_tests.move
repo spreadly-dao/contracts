@@ -1,6 +1,6 @@
 #[test_only]
 module spreadly::revenue_pool_tests {
-    use std::debug;
+    // use std::debug;
 
     use sui::test_scenario::{Self as ts, Scenario};
     use sui::coin::{Self};
@@ -49,6 +49,49 @@ module spreadly::revenue_pool_tests {
 
         // Advance clock to start with non-zero time
         advance_clock(clock, 1000);
+    }
+
+        // Helper function to create stake position
+    fun create_stake_position(scenario: &mut Scenario, addr: address, amount: u64) {
+        let clock = create_clock(scenario);
+        ts::next_tx(scenario, addr);
+        {
+            let mut staking_pool = ts::take_shared<StakingPool>(scenario);
+            let stake_coins = coin::mint_for_testing<SPREADLY>(amount, ts::ctx(scenario));
+            let position = staking::stake(
+                &mut staking_pool,
+                stake_coins, 
+                &clock, 
+                ts::ctx(scenario)
+            );                        
+            transfer::public_transfer(position, addr);
+            ts::return_shared(staking_pool);
+            clock::destroy_for_testing(clock);
+
+        }
+    }
+
+    // Helper function to verify claim amount
+    fun verify_claim(scenario: &mut Scenario, addr: address, expected_amount: u64, clock: &Clock) {
+        ts::next_tx(scenario, addr);
+        {
+            let mut pool = ts::take_shared<RevenuePool>(scenario);
+            let mut position = ts::take_from_sender<StakePosition>(scenario);
+
+            let claimed = revenue_pool::claim_revenue<SUI>(
+                &mut pool,
+                &mut position,
+                clock,
+                ts::ctx(scenario)
+            );
+
+            assert!(coin::value(&claimed) == expected_amount, 0);
+
+            
+            transfer::public_transfer(position, addr);
+            transfer::public_transfer( claimed, addr);
+            ts::return_shared(pool);
+        }
     }
 
     // Test basic initialization
@@ -165,7 +208,6 @@ module spreadly::revenue_pool_tests {
             );
             
             // Verify claimed amount
-            debug::print(&coin::value(&claimed));
             assert!(coin::value(&claimed) > 0, 0);
             
             // Clean up
@@ -261,47 +303,10 @@ module spreadly::revenue_pool_tests {
         ts::end(scenario);
     }
 
-    // Helper function to create stake position
-    fun create_stake_position(scenario: &mut Scenario, addr: address, amount: u64) {
-        let clock = create_clock(scenario);
-        ts::next_tx(scenario, addr);
-        {
-            let mut staking_pool = ts::take_shared<StakingPool>(scenario);
-            let stake_coins = coin::mint_for_testing<SPREADLY>(amount, ts::ctx(scenario));
-            let position = staking::stake(
-                &mut staking_pool,
-                stake_coins, 
-                &clock, 
-                ts::ctx(scenario)
-            );                        
-            transfer::public_transfer(position, addr);
-            ts::return_shared(staking_pool);
-            clock::destroy_for_testing(clock);
 
-        }
-    }
 
-    // Helper function to verify claim amount
-    fun verify_claim(scenario: &mut Scenario, addr: address, expected_amount: u64, clock: &Clock) {
-        ts::next_tx(scenario, addr);
-        {
-            let mut pool = ts::take_shared<RevenuePool>(scenario);
-            let mut position = ts::take_from_sender<StakePosition>(scenario);
-
-            let claimed = revenue_pool::claim_revenue<SUI>(
-                &mut pool,
-                &mut position,
-                clock,
-                ts::ctx(scenario)
-            );
-            debug::print(&coin::value(&claimed));
-            debug::print(&expected_amount);
-            assert!(coin::value(&claimed) == expected_amount, 0);
-
-            
-            transfer::public_transfer(position, addr);
-            transfer::public_transfer( claimed, addr);
-            ts::return_shared(pool);
-        }
-    }
+    // need to add on & figure out multiple coin structure... 
+    // should change last_claimed_timestamp on StakingPosition to be a table
+    // when staking or unstaking, check all the timestamps 
+    // if any timestamp is less than the current epoch's start, then throw error
 }

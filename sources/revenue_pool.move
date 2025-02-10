@@ -73,7 +73,7 @@ module spreadly::revenue_pool {
         staker: address,
         segment_start: u64,
         segment_end: u64,
-        assets: vector<String>
+        asset: String
     }
 
 
@@ -262,6 +262,7 @@ module spreadly::revenue_pool {
 
         assert!(stake_position::get_amount(position) > 0, ENO_STAKE);
 
+        //  need to change here so we can get the table value of the position & type name...
         let last_claimed = stake_position::get_last_claimed_timestamp(position);
         
         // Verify revenue type exists and is active
@@ -284,7 +285,7 @@ module spreadly::revenue_pool {
                 staker: sender,
                 segment_start: last_claimed,
                 segment_end: current_ts,
-                assets: vector[type_name]
+                asset: type_name
             });
         };
         
@@ -343,7 +344,6 @@ module spreadly::revenue_pool {
             epoch.total_stake = epoch.total_stake - amount;
         };
     }
-
 
     // === Helper Functions ===
 
@@ -426,6 +426,7 @@ module spreadly::revenue_pool {
                         let epoch = linked_table::borrow_mut(&mut segment.epochs, epoch_ts);
                         
                         // First check if we should process this epoch at all
+                        // add logic to check for last claimed 
                         if (epoch.end_timestamp <= end_ts &&
                             epoch.start_timestamp >= start_ts &&
                             stake_position::get_stake_timestamp(position) <= epoch.start_timestamp) {

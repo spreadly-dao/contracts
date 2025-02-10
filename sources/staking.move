@@ -49,7 +49,7 @@ module spreadly::staking {
         );
         display::add(&mut display, 
             string::utf8(b"image_url"), 
-            string::utf8(b"https://spreadly.com/nft/staking.png")
+            string::utf8(b"https://spreadly.xyz/nft/staking.png")
         );
         
         display::update_version(&mut display);
