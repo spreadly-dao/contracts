@@ -4,8 +4,10 @@ module spreadly::revenue_pool {
     use sui::clock::{Self, Clock};
     use sui::bag::{Self, Bag};
     use sui::linked_table::{Self, LinkedTable};
+    use sui::table::{Self, Table};
     use sui::event;
-    use std::string::{Self, String};
+    use std::ascii::{String};
+    use std::type_name::{into_string};
 
     use spreadly::stake_position::{Self, StakePosition};
     use spreadly::staking_pool::{Self, StakingPool};
@@ -14,11 +16,11 @@ module spreadly::revenue_pool {
     const EINVALID_EPOCH_DURATION: u64 = 1;
     const ENO_STAKE: u64 = 2;
     const EINSUFFICIENT_STAKE: u64 = 3;
-    const EALREADY_CLAIMED: u64 = 3;
-    const EZERO_TOTAL_STAKE: u64 = 4;
-    const EINACTIVE_REVENUE_TYPE: u64 = 5;
-    const EDUPLICATE_REVENUE_TYPE: u64 = 6;
-    const EREVENUE_TYPE_NOT_FOUND: u64 = 7;
+    const EALREADY_CLAIMED: u64 = 4;
+    const EZERO_TOTAL_STAKE: u64 = 5;
+    const EINACTIVE_REVENUE_TYPE: u64 = 6;
+    const EDUPLICATE_REVENUE_TYPE: u64 = 7;
+    const EREVENUE_TYPE_NOT_FOUND: u64 = 8;
 
     // === public Structs ===
 
@@ -34,6 +36,7 @@ module spreadly::revenue_pool {
         end_timestamp: u64,
         total_stake: u64,
         revenues: Bag,
+        total_revenues: Table<String, u64>
     }
 
     /// Modified EpochSegment to include epochs
@@ -98,6 +101,11 @@ module spreadly::revenue_pool {
     
         // Share revenue pool object
         transfer::share_object(pool)
+    }
+
+    #[test_only]
+    public fun test_init(ctx: &mut TxContext) {
+        init(ctx)
     }
 
     /// Initialize if needed with real timestamp
@@ -204,7 +212,7 @@ module spreadly::revenue_pool {
         
         let timestamp = clock::timestamp_ms(clock);
         let amount = coin::value(&revenue);
-        let type_name = string::utf8(b"coin::Coin<T>");
+        let type_name = get_coin_type_name<T>();
 
         // Verify revenue type exists and is active in the pool's global config
         assert!(linked_table::contains(&pool.revenue_types, type_name), EREVENUE_TYPE_NOT_FOUND);
@@ -217,11 +225,20 @@ module spreadly::revenue_pool {
         // Initialize the revenue bag for this type if it doesn't exist
         if (!bag::contains(&current_epoch.revenues, type_name)) {
             bag::add(&mut current_epoch.revenues, type_name, balance::zero<T>());
+            
+            // Initialize the total revenue entry in the table
+            if (!table::contains(&current_epoch.total_revenues, type_name)) {
+                table::add(&mut current_epoch.total_revenues, type_name, 0);
+            };
         };
         
         // Add the revenue to the epoch's revenue bag
         let balance = bag::borrow_mut(&mut current_epoch.revenues, type_name);
         balance::join(balance, coin::into_balance(revenue));
+        
+        // Update the total revenue for this type
+        let current_total = table::borrow_mut(&mut current_epoch.total_revenues, type_name);
+        *current_total = *current_total + amount;
         
         event::emit(RevenueDepositEvent {
             asset_type: type_name,
@@ -248,7 +265,7 @@ module spreadly::revenue_pool {
         let last_claimed = stake_position::get_last_claimed_timestamp(position);
         
         // Verify revenue type exists and is active
-        let type_name = string::utf8(b"coin::Coin<T>");
+        let type_name = get_coin_type_name<T>();
         assert!(linked_table::contains(&pool.revenue_types, type_name), EREVENUE_TYPE_NOT_FOUND);
         let revenue_type = linked_table::borrow(&pool.revenue_types, type_name);
         assert!(revenue_type.active, EINACTIVE_REVENUE_TYPE);
@@ -329,6 +346,12 @@ module spreadly::revenue_pool {
 
 
     // === Helper Functions ===
+
+    public fun get_coin_type_name<T>(): String {
+        let type_name = std::type_name::get<T>();
+        into_string(type_name)
+    }
+
     fun get_current_epoch_mut(
         pool: &mut RevenuePool,
         staking_pool: &StakingPool, 
@@ -342,7 +365,8 @@ module spreadly::revenue_pool {
                 start_timestamp: timestamp,
                 end_timestamp: timestamp + segment.epoch_duration,
                 total_stake: staking_pool::total_staked(staking_pool),
-                revenues: bag::new(ctx)
+                revenues: bag::new(ctx),
+                total_revenues: table::new(ctx)
             };
             linked_table::push_back(&mut segment.epochs, timestamp, new_epoch);
             return linked_table::borrow_mut(&mut segment.epochs, timestamp)
@@ -359,7 +383,8 @@ module spreadly::revenue_pool {
                 start_timestamp: new_start,
                 end_timestamp: new_start + segment.epoch_duration,
                 total_stake: staking_pool::total_staked(staking_pool),
-                revenues: bag::new(ctx)
+                revenues: bag::new(ctx),
+                total_revenues: table::new(ctx)
             };
             linked_table::push_back(&mut segment.epochs, new_start, new_epoch);
             return linked_table::borrow_mut(&mut segment.epochs, new_start)
@@ -377,59 +402,50 @@ module spreadly::revenue_pool {
     ): Balance<T> {
         let mut claimable = balance::zero<T>();
         
-        // Get the first segment that might contain claimable revenue
-        // We need to find the segment that was active when start_ts occurred
-        let first_segment_ts = linked_table::front(&pool.segments);
-        if (option::is_none(first_segment_ts)) {
+        // Start from the most recent segment
+        let last_segment_ts = linked_table::back(&pool.segments);
+        if (option::is_none(last_segment_ts)) {
             return claimable
         };
         
-        let mut current_segment_ts = *option::borrow(first_segment_ts);
+        let mut current_segment_ts = *option::borrow(last_segment_ts);
         
-        // Loop through all segments that might contain claimable revenue
+        // Work backwards through segments until we're before the start time
+        // or we've processed all segments
         while (current_segment_ts >= start_ts) {
-            // Get the current segment and check if it has any epochs
             let segment = linked_table::borrow_mut(&mut pool.segments, current_segment_ts);
             
             if (!linked_table::is_empty(&segment.epochs)) {
-                // Find epochs in this segment that fall within our claim window
-                let first_epoch_ts = linked_table::front(&segment.epochs);
-                if (option::is_some(first_epoch_ts)) {
-                    let mut epoch_ts = *option::borrow(first_epoch_ts);
+                // Start from the most recent epoch in this segment
+                let last_epoch_ts = linked_table::back(&segment.epochs);
+                if (option::is_some(last_epoch_ts)) {
+                    let mut epoch_ts = *option::borrow(last_epoch_ts);
                     
-                    // Process all epochs in this segment
-                    while (option::is_some(linked_table::next(&segment.epochs, epoch_ts))) {
+                    // Process epochs in reverse until we're before start_ts
+                    while (epoch_ts >= start_ts) {
                         let epoch = linked_table::borrow_mut(&mut segment.epochs, epoch_ts);
                         
-                        // Check if this epoch overlaps with our claim window and stake was active
-                        if (epoch.end_timestamp > start_ts && 
-                            epoch.start_timestamp < end_ts &&
-                            stake_position::get_stake_timestamp(position) <= epoch.end_timestamp) {
+                        // First check if we should process this epoch at all
+                        if (epoch.end_timestamp <= end_ts &&
+                            epoch.start_timestamp >= start_ts &&
+                            stake_position::get_stake_timestamp(position) <= epoch.start_timestamp) {
                             
-                            // Calculate and collect revenue if epoch has ended
-                            if (epoch.end_timestamp <= end_ts) {
-                                process_epoch_revenue<T>(epoch, position, &mut claimable);
-                            }
+                            process_epoch_revenue<T>(epoch, position, &mut claimable);
                         };
                         
-                        epoch_ts = *option::borrow(linked_table::next(&segment.epochs, epoch_ts));
-                    };
-                    
-                    // Process the final epoch in this segment
-                    let epoch = linked_table::borrow_mut(&mut segment.epochs, epoch_ts);
-                    if (epoch.end_timestamp > start_ts && 
-                        epoch.start_timestamp < end_ts &&
-                        stake_position::get_stake_timestamp(position) <= epoch.start_timestamp &&
-                        epoch.end_timestamp <= end_ts) {
-                        
-                        process_epoch_revenue<T>(epoch, position, &mut claimable);
+                        // Move to previous epoch if it exists
+                        if (option::is_some(linked_table::prev(&segment.epochs, epoch_ts))) {
+                            epoch_ts = *option::borrow(linked_table::prev(&segment.epochs, epoch_ts));
+                        } else {
+                            break
+                        };
                     }
                 }
             };
             
-            // Move to next segment if there is one
-            if (option::is_some(linked_table::next(&pool.segments, current_segment_ts))) {
-                current_segment_ts = *option::borrow(linked_table::next(&pool.segments, current_segment_ts));
+            // Move to previous segment if it exists
+            if (option::is_some(linked_table::prev(&pool.segments, current_segment_ts))) {
+                current_segment_ts = *option::borrow(linked_table::prev(&pool.segments, current_segment_ts));
             } else {
                 break
             };
@@ -449,7 +465,7 @@ module spreadly::revenue_pool {
         let share = (stake_position::get_amount(position) as u128) * 
                     (1u128 << 64) / (epoch.total_stake as u128);
         
-        let type_name = string::utf8(b"coin::Coin<T>");
+        let type_name = get_coin_type_name<T>();
         if (bag::contains(&epoch.revenues, type_name)) {
             let epoch_revenue = bag::borrow_mut(&mut epoch.revenues, type_name);
             let amount = (balance::value(epoch_revenue) as u128) * 
@@ -464,5 +480,23 @@ module spreadly::revenue_pool {
     fun close_current_segment(pool: &mut RevenuePool, end_timestamp: u64) {
         let segment = linked_table::borrow_mut(&mut pool.segments, pool.current_segment_ts);
         segment.end_timestamp = option::some(end_timestamp);
+    }
+
+    // getters
+
+    public fun get_current_segment_ts(pool: &RevenuePool): u64 {
+        pool.current_segment_ts
+    }
+
+    /// Checks if a given revenue type exists and is active
+    public fun is_revenue_type_active(pool: &RevenuePool, type_name: String): bool {
+        // First check if the type exists
+        if (!linked_table::contains(&pool.revenue_types, type_name)) {
+            return false
+        };
+        
+        // Get the revenue type and check its active status
+        let revenue_type = linked_table::borrow(&pool.revenue_types, type_name);
+        revenue_type.active
     }
 }

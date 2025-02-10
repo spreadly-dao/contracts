@@ -47,6 +47,11 @@ module spreadly::staking_pool {
         transfer::share_object(pool);
     }
 
+    #[test_only]
+    public fun test_init(ctx: &mut TxContext) {
+        init(ctx)
+    }
+
     /// Adds tokens to the pool
     public(package) fun deposit(
         pool: &mut StakingPool,

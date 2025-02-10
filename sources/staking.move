@@ -77,7 +77,7 @@ module spreadly::staking {
         staking_pool::deposit(pool, coin::into_balance(coin), clock);
         
         // Create stake position NFT
-        let position = stake_position::new(amount, timestamp, ctx);
+        let position = stake_position::new(amount, clock, ctx);
         
         let position_id = object::id(&position);
         

@@ -1,4 +1,6 @@
 module spreadly::stake_position {
+    use sui::clock::{Self, Clock};
+
     const ERROR_INSUFFICIENT_AMOUNT: u64 = 1;
     const ERROR_INVALID_TIMESTAMP: u64 = 2;
 
@@ -10,15 +12,15 @@ module spreadly::stake_position {
     }
     
     // Constructor function
-    public fun new(
+    public(package) fun new(
         amount: u64,
-        stake_timestamp: u64,
+        clock: &Clock,
         ctx: &mut TxContext
     ): StakePosition {
         StakePosition {
             id: object::new(ctx),
             amount,
-            stake_timestamp,
+            stake_timestamp: clock::timestamp_ms(clock),  // Get timestamp from clock
             last_claimed_timestamp: 0,
         }
     }
