@@ -42,8 +42,9 @@ module spreadly::spreadly {
     const MAX_SUI_CONTRIBUTION: u64 = 250_000_000_000; // 250 SUI maximum per address
     const LIQUIDITY_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
     const CLAIM_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const LP_ALLOCATION: u64 = 450_000_000_000_000_000; // 45% for LPs
-    const COMMUNITY_ALLOCATION: u64 = 350_000_000_000_000_000; // 35% for community
+    const LP_ALLOCATION: u64 = 400_000_000_000_000_000; // 40% for LPs
+    const COMMUNITY_ALLOCATION: u64 = 300_000_000_000_000_000; // 30% for community
+    const COMMUNITY_TREASURY_ALLOCATION: u64 = 100_000_000_000_000_000; // 10% for community treasury
     const COMMUNITY_ALLOCATION_LOCK: u64 = 5_000_000_000; // 5 SUI lock
     const DEX_ALLOCATION: u64 = 150_000_000_000_000_000; // 15% for DEX
     const CORE_ALLOCATION: u64 = 50_000_000_000_000_000; // 5% for core team
@@ -702,6 +703,10 @@ module spreadly::spreadly {
 
     public fun get_core_allocation(): u64 {
         CORE_ALLOCATION
+    }
+
+    public fun get_community_treasury_allocation(): u64 {
+        COMMUNITY_TREASURY_ALLOCATION
     }
 
     public fun get_community_allocation_lock(): u64 {
