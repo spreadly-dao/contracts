@@ -1,13 +1,16 @@
 #[test_only]
 module spreadly::revenue_pool_tests {
+    use std::debug;
+
     use sui::test_scenario::{Self as ts, Scenario};
     use sui::coin::{Self};
     use sui::clock::{Self, Clock};
-    use sui::test_utils;
     use sui::sui::SUI;
     
+    use spreadly::spreadly::{SPREADLY};
     use spreadly::revenue_pool::{Self, RevenuePool};
-    use spreadly::stake_position::{Self, StakePosition};
+    use spreadly::staking::{Self};
+    use spreadly::stake_position::{StakePosition};
     use spreadly::staking_pool::{Self, StakingPool};
 
     // Test constants
@@ -124,13 +127,7 @@ module spreadly::revenue_pool_tests {
         };
 
         // Now set up the staking position that will receive revenue
-        ts::next_tx(&mut scenario, TEST_ADDR_1);
-        {
-            let staking_pool = ts::take_shared<StakingPool>(&scenario);
-            let position = stake_position::new(100_000, &clock, ts::ctx(&mut scenario));
-            transfer::public_transfer(position, TEST_ADDR_1);
-            ts::return_shared(staking_pool);
-        };
+        create_stake_position(&mut scenario, TEST_ADDR_1, 10000);
 
         // Now we can deposit revenue, knowing the type is properly registered
         ts::next_tx(&mut scenario, ADMIN);
@@ -152,14 +149,14 @@ module spreadly::revenue_pool_tests {
             ts::return_shared(staking_pool);
         };
         // Advance clock past epoch duration
-        advance_clock(&mut clock, THIRTY_DAYS_MS);
+        advance_clock(&mut clock, THIRTY_DAYS_MS + 1);
 
         // Claim revenue
         ts::next_tx(&mut scenario, TEST_ADDR_1);
         {
             let mut pool = ts::take_shared<RevenuePool>(&scenario);
             let mut position = ts::take_from_sender<StakePosition>(&scenario);
-            
+
             let claimed = revenue_pool::claim_revenue<SUI>(
                 &mut pool,
                 &mut position,
@@ -168,13 +165,14 @@ module spreadly::revenue_pool_tests {
             );
             
             // Verify claimed amount
+            debug::print(&coin::value(&claimed));
             assert!(coin::value(&claimed) > 0, 0);
             
             // Clean up
-            transfer::public_transfer(position, TEST_ADDR_1);
             transfer::public_transfer(claimed, TEST_ADDR_1);
 
             ts::return_shared(pool);
+            ts::return_to_sender(&scenario, position);
         };
 
         clock::destroy_for_testing(clock);
@@ -225,9 +223,9 @@ module spreadly::revenue_pool_tests {
         advance_clock(&mut clock, THIRTY_DAYS_MS);
 
         // Have each staker claim and verify proportional amounts
-        verify_claim(&mut scenario, TEST_ADDR_1, 1000, &clock); // ~1/6 of 6000
-        verify_claim(&mut scenario, TEST_ADDR_2, 2000, &clock); // ~2/6 of 6000
         verify_claim(&mut scenario, TEST_ADDR_3, 3000, &clock); // ~3/6 of 6000
+        verify_claim(&mut scenario, TEST_ADDR_2, 2000, &clock); // ~2/6 of 6000
+        verify_claim(&mut scenario, TEST_ADDR_1, 1000, &clock); // ~1/6 of 6000
 
         clock::destroy_for_testing(clock);
         ts::end(scenario);
@@ -268,9 +266,14 @@ module spreadly::revenue_pool_tests {
         let clock = create_clock(scenario);
         ts::next_tx(scenario, addr);
         {
-            let staking_pool = ts::take_shared<StakingPool>(scenario);
-            let position = stake_position::new(amount, &clock, ts::ctx(scenario));
-                        
+            let mut staking_pool = ts::take_shared<StakingPool>(scenario);
+            let stake_coins = coin::mint_for_testing<SPREADLY>(amount, ts::ctx(scenario));
+            let position = staking::stake(
+                &mut staking_pool,
+                stake_coins, 
+                &clock, 
+                ts::ctx(scenario)
+            );                        
             transfer::public_transfer(position, addr);
             ts::return_shared(staking_pool);
             clock::destroy_for_testing(clock);
@@ -284,14 +287,15 @@ module spreadly::revenue_pool_tests {
         {
             let mut pool = ts::take_shared<RevenuePool>(scenario);
             let mut position = ts::take_from_sender<StakePosition>(scenario);
-            
+
             let claimed = revenue_pool::claim_revenue<SUI>(
                 &mut pool,
                 &mut position,
                 clock,
                 ts::ctx(scenario)
             );
-            
+            debug::print(&coin::value(&claimed));
+            debug::print(&expected_amount);
             assert!(coin::value(&claimed) == expected_amount, 0);
 
             
@@ -300,6 +304,4 @@ module spreadly::revenue_pool_tests {
             ts::return_shared(pool);
         }
     }
-
-    // Add more tests as needed...
 }

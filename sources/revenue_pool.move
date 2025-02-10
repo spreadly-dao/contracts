@@ -455,6 +455,29 @@ module spreadly::revenue_pool {
     }
 
     // Helper function to process revenue for a single epoch
+    // fun process_epoch_revenue<T>(
+    //     epoch: &mut Epoch,
+    //     position: &StakePosition,
+    //     claimable: &mut Balance<T>
+    // ) {
+    //     assert!(epoch.total_stake > 0, EZERO_TOTAL_STAKE);
+        
+    //     let share = (stake_position::get_amount(position) as u128) * 
+    //                 (1u128 << 64) / (epoch.total_stake as u128);
+        
+    //     let type_name = get_coin_type_name<T>();
+    //     if (bag::contains(&epoch.revenues, type_name)) {
+    //         let epoch_revenue = bag::borrow_mut(&mut epoch.revenues, type_name);
+    //         let amount = (balance::value(epoch_revenue) as u128) * 
+    //                     share / (1u128 << 64);
+    //         if (amount > 0) {
+    //             balance::join(claimable, 
+    //                 balance::split(epoch_revenue, (amount as u64)));
+    //             // need to fix this so the total_stake is descending for the epoch when someone claims...
+    //         }
+    //     }
+    // }
+
     fun process_epoch_revenue<T>(
         epoch: &mut Epoch,
         position: &StakePosition,
@@ -462,17 +485,15 @@ module spreadly::revenue_pool {
     ) {
         assert!(epoch.total_stake > 0, EZERO_TOTAL_STAKE);
         
-        let share = (stake_position::get_amount(position) as u128) * 
-                    (1u128 << 64) / (epoch.total_stake as u128);
-        
         let type_name = get_coin_type_name<T>();
-        if (bag::contains(&epoch.revenues, type_name)) {
-            let epoch_revenue = bag::borrow_mut(&mut epoch.revenues, type_name);
-            let amount = (balance::value(epoch_revenue) as u128) * 
-                        share / (1u128 << 64);
+        if (table::contains(&epoch.total_revenues, type_name) && bag::contains(&epoch.revenues, type_name)) {
+            let total_epoch_revenue = table::borrow(&epoch.total_revenues, type_name);
+            let amount = (*total_epoch_revenue as u128) * (stake_position::get_amount(position) as u128) / (epoch.total_stake as u128);
+            let epoch_revenue = bag::borrow_mut(&mut epoch.revenues,type_name);
+
             if (amount > 0) {
                 balance::join(claimable, 
-                    balance::split(epoch_revenue, (amount as u64)));
+                    balance::split(epoch_revenue, amount as u64));
             }
         }
     }
