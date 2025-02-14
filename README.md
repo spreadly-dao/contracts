@@ -4,8 +4,8 @@ This document provides the essential addresses for interacting with Spreadly on 
 
 ## Spreadly Core Addresses
 
-*   Spreadly Package: `0x60ad85f51976b6c8d29c53d3dd9ea0d96c3d27bb117b68ec52452e49c2aae0c8`
-*   Distribution Object: `0x3541468b3777f93b29c0939ebfeb2ecbaa78a864d6a8210e03ddf08b545b4fb9`
+*   Spreadly Package: `0xf9245f044fb91789cdaa4b3ca8e54137f49758597dbbd80d78a5af4ca197749d`
+*   Distribution Object: `0x03afb040938eb77fc1fbf6c51a439ba2aed0a50961b5958148d74cccf8693b7c`
 
 ## Cetus Core Addresses
 
@@ -14,7 +14,7 @@ This document provides the essential addresses for interacting with Spreadly on 
 
 ## Token Metadata
 
-*   SPRD Token Metadata: `0x3c05eb2a06b59e5328f67c40783b566ecc5d4131eebad67d652615104b4a6290`
+*   SPRD Token Metadata: `0x6545fd45541591a11eaae55de46779a3195477414c8c995351f35efc55d7f34e`
 *   SUI Token Metadata: `0x587c29de216efd4219573e08a1f6964d4fa7cb714518c2c8a0f29abfa264327d`
 
 ## System Objects

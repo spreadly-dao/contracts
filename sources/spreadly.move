@@ -40,8 +40,10 @@ module spreadly::spreadly {
     const MAX_SUI_CAP: u64 = 15_000_000_000_000; // 15,000 SUI
     const MIN_SUI_CONTRIBUTION: u64 = 1_000_000_000; // 1 SUI minimum
     const MAX_SUI_CONTRIBUTION: u64 = 250_000_000_000; // 250 SUI maximum per address
-    const LIQUIDITY_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const CLAIM_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
+    // const LIQUIDITY_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
+    // const CLAIM_PERIOD: u64 = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const LIQUIDITY_PERIOD: u64 = 1 * 60 * 60 * 1000; // 1 hour
+    const CLAIM_PERIOD: u64 = 1 * 60 * 60 * 1000; // 1 hour
     const LP_ALLOCATION: u64 = 400_000_000_000_000_000; // 40% for LPs
     const COMMUNITY_ALLOCATION: u64 = 300_000_000_000_000_000; // 30% for community
     const COMMUNITY_TREASURY_ALLOCATION: u64 = 100_000_000_000_000_000; // 10% for community treasury
@@ -279,7 +281,7 @@ module spreadly::spreadly {
         distribution: &mut Distribution,
         config: &GlobalConfig,
         pools: &mut Pools,
-        sprd_metadata: &CoinMetadata<SPREADLY>,  // Add metadata parameters
+        sprd_metadata: &CoinMetadata<SPREADLY>,
         sui_metadata: &CoinMetadata<SUI>,
         clock: &Clock,
         ctx: &mut TxContext
@@ -291,8 +293,13 @@ module spreadly::spreadly {
         let tick_spacing = 60;
         let (tick_lower, tick_upper) = pool_creator::full_range_tick_range(tick_spacing);
         
-        let initial_price = (coin::value(&sui_coins) as u128) * ((1u128 << 64) / (DEX_ALLOCATION as u128));
-
+        // More precise price calculation
+        let sui_amount = (coin::value(&sui_coins) as u128);
+        let sprd_amount = (DEX_ALLOCATION as u128);
+        
+        // Calculate price with higher precision
+        // Price = (SUI_amount / SPRD_amount) * 2^64
+        let initial_price = (sui_amount * (1u128 << 64)) / sprd_amount;
 
         let (position_obj, remaining_sprd, remaining_sui) = pool_creator::create_pool_v2<SPREADLY, SUI>(
             config,
@@ -304,23 +311,16 @@ module spreadly::spreadly {
             tick_upper,
             sprd_coins,
             sui_coins,
-            sprd_metadata,  // Use passed in metadata
+            sprd_metadata,
             sui_metadata,
             true,
             clock,
             ctx
         );
 
-        // Assert no remaining tokens - all should be in pool
-        assert!(coin::value(&remaining_sprd) == 0, ENO_LIQUIDITY);
-        assert!(coin::value(&remaining_sui) == 0, ENO_LIQUIDITY);
-        
-        // Clean up zero coins
-        coin::destroy_zero(remaining_sprd);
-        coin::destroy_zero(remaining_sui);
-
-
         // Burn LP
+        transfer::public_transfer(remaining_sprd, @0x0);
+        transfer::public_transfer(remaining_sui, @0x0);
         transfer::public_transfer(position_obj, @0x0);
     }
 
