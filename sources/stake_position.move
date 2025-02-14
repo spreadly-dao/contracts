@@ -1,5 +1,7 @@
 module spreadly::stake_position {
     use sui::clock::{Self, Clock};
+    use sui::linked_table::{Self, LinkedTable};
+    use std::ascii::{String};
 
     const ERROR_INSUFFICIENT_AMOUNT: u64 = 1;
     const ERROR_INVALID_TIMESTAMP: u64 = 2;
@@ -8,7 +10,7 @@ module spreadly::stake_position {
         id: UID,
         amount: u64,
         stake_timestamp: u64,
-        last_claimed_timestamp: u64,
+        last_claimed_timestamp: LinkedTable<String, u64>,
     }
     
     // Constructor function
@@ -21,7 +23,7 @@ module spreadly::stake_position {
             id: object::new(ctx),
             amount,
             stake_timestamp: clock::timestamp_ms(clock),  // Get timestamp from clock
-            last_claimed_timestamp: 0,
+            last_claimed_timestamp: linked_table::new(ctx),
         }
     }
 
@@ -34,14 +36,15 @@ module spreadly::stake_position {
         self.stake_timestamp
     }
 
-    public fun get_last_claimed_timestamp(self: &StakePosition): u64 {
-        self.last_claimed_timestamp
-    }
-
-    // A utility function that returns multiple pieces of state at once
-    // This can be helpful when you need to read multiple values in one call
-    public fun get_position_info(self: &StakePosition): (u64, u64, u64) {
-        (self.amount, self.stake_timestamp, self.last_claimed_timestamp)
+    public fun get_last_claimed_timestamp(
+        self: &StakePosition, 
+        reward_type: &String
+    ): u64 {
+        if (linked_table::contains(&self.last_claimed_timestamp, *reward_type)) {
+            *linked_table::borrow(&self.last_claimed_timestamp, *reward_type)
+        } else {
+            0 // Return 0 if no claim has been made for this reward type
+        }
     }
     
     // Existing modifier functions
@@ -52,12 +55,45 @@ module spreadly::stake_position {
 
     public fun set_last_claimed_timestamp(
         position: &mut StakePosition, 
-        last_claimed_timestamp: u64,
+        reward_type: String,
+        new_timestamp: u64,
     ) {
-        assert!(
-            position.last_claimed_timestamp <= last_claimed_timestamp, 
-            ERROR_INVALID_TIMESTAMP
-        );
-        position.last_claimed_timestamp = last_claimed_timestamp;
+        if (linked_table::contains(&position.last_claimed_timestamp, reward_type)) {
+            let current_timestamp = linked_table::borrow(&position.last_claimed_timestamp, reward_type);
+            assert!(
+                *current_timestamp <= new_timestamp, 
+                ERROR_INVALID_TIMESTAMP
+            );
+            *linked_table::borrow_mut(&mut position.last_claimed_timestamp, reward_type) = new_timestamp;
+        } else {
+            linked_table::push_back(&mut position.last_claimed_timestamp, reward_type, new_timestamp);
+        }
+    }
+
+    public fun get_all_claim_timestamps(
+        table: &LinkedTable<String, u64>
+    ): (vector<String>, vector<u64>) {
+        let mut types = vector::empty();
+        let mut timestamps = vector::empty();
+        
+        // Get the first key
+        let mut maybe_key = linked_table::front(table);
+        
+        // While we have a key
+        while (option::is_some(maybe_key)) {
+            let key = *option::borrow(maybe_key);
+            
+            // Get the value for this key
+            let timestamp = *linked_table::borrow(table, key);
+            
+            // Store the key-value pair
+            vector::push_back(&mut types, key);
+            vector::push_back(&mut timestamps, timestamp);
+            
+            // Get the next key
+            maybe_key = linked_table::next(table, key);
+        };
+        
+        (types, timestamps)
     }
 }

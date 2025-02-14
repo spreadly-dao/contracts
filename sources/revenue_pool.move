@@ -258,15 +258,15 @@ module spreadly::revenue_pool {
         initialize_if_needed(pool, clock, ctx);
         
         let current_ts = clock::timestamp_ms(clock);
-        assert!(stake_position::get_last_claimed_timestamp(position) < current_ts, EALREADY_CLAIMED);
+        let type_name = get_coin_type_name<T>();
+
+        // Get last claimed timestamp for this specific revenue type
+        let last_claimed = stake_position::get_last_claimed_timestamp(position, &type_name);
+        assert!(last_claimed < current_ts, EALREADY_CLAIMED);
 
         assert!(stake_position::get_amount(position) > 0, ENO_STAKE);
-
-        //  need to change here so we can get the table value of the position & type name...
-        let last_claimed = stake_position::get_last_claimed_timestamp(position);
         
         // Verify revenue type exists and is active
-        let type_name = get_coin_type_name<T>();
         assert!(linked_table::contains(&pool.revenue_types, type_name), EREVENUE_TYPE_NOT_FOUND);
         let revenue_type = linked_table::borrow(&pool.revenue_types, type_name);
         assert!(revenue_type.active, EINACTIVE_REVENUE_TYPE);
@@ -279,7 +279,8 @@ module spreadly::revenue_pool {
         );
         
         if (balance::value(&balance) > 0) {
-            stake_position::set_last_claimed_timestamp(position, current_ts);
+            // Update last claimed timestamp for this specific revenue type
+            stake_position::set_last_claimed_timestamp(position, type_name, current_ts);
             
             event::emit(RevenueClaimEvent {
                 staker: sender,
@@ -454,30 +455,6 @@ module spreadly::revenue_pool {
         
         claimable
     }
-
-    // Helper function to process revenue for a single epoch
-    // fun process_epoch_revenue<T>(
-    //     epoch: &mut Epoch,
-    //     position: &StakePosition,
-    //     claimable: &mut Balance<T>
-    // ) {
-    //     assert!(epoch.total_stake > 0, EZERO_TOTAL_STAKE);
-        
-    //     let share = (stake_position::get_amount(position) as u128) * 
-    //                 (1u128 << 64) / (epoch.total_stake as u128);
-        
-    //     let type_name = get_coin_type_name<T>();
-    //     if (bag::contains(&epoch.revenues, type_name)) {
-    //         let epoch_revenue = bag::borrow_mut(&mut epoch.revenues, type_name);
-    //         let amount = (balance::value(epoch_revenue) as u128) * 
-    //                     share / (1u128 << 64);
-    //         if (amount > 0) {
-    //             balance::join(claimable, 
-    //                 balance::split(epoch_revenue, (amount as u64)));
-    //             // need to fix this so the total_stake is descending for the epoch when someone claims...
-    //         }
-    //     }
-    // }
 
     fun process_epoch_revenue<T>(
         epoch: &mut Epoch,
