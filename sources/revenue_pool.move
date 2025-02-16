@@ -27,7 +27,8 @@ module spreadly::revenue_pool {
     public struct RevenueType has store {
         name: String,
         active: bool,
-        added_at: u64
+        added_at: u64,
+        last_epoch_end_timestamp: u64
     }
     
     /// Represents a single epoch for revenue distribution
@@ -148,7 +149,8 @@ module spreadly::revenue_pool {
         let revenue_type = RevenueType {
             name: type_name,
             active: true,
-            added_at: timestamp
+            added_at: timestamp,
+            last_epoch_end_timestamp: 0
         };
 
         // Add the revenue type to the pool's global revenue types table
@@ -214,10 +216,15 @@ module spreadly::revenue_pool {
         let amount = coin::value(&revenue);
         let type_name = get_coin_type_name<T>();
 
-        // Verify revenue type exists and is active in the pool's global config
+        // Get the current epoch end timestamp
+        let current_end_ts = get_current_epoch_end_ts(pool, timestamp);
+        
+        // First validate the revenue type exists and is active
         assert!(linked_table::contains(&pool.revenue_types, type_name), EREVENUE_TYPE_NOT_FOUND);
-        let revenue_type = linked_table::borrow(&pool.revenue_types, type_name);
+        let revenue_type = linked_table::borrow_mut(&mut pool.revenue_types, type_name);
         assert!(revenue_type.active, EINACTIVE_REVENUE_TYPE);
+
+        revenue_type.last_epoch_end_timestamp = current_end_ts;
         
         // Get current segment and then the current epoch within it
         let current_epoch = get_current_epoch_mut(pool, staking_pool, timestamp, ctx);
@@ -497,5 +504,102 @@ module spreadly::revenue_pool {
         // Get the revenue type and check its active status
         let revenue_type = linked_table::borrow(&pool.revenue_types, type_name);
         revenue_type.active
+    }
+
+    // Gets the end timestamp of the last completed epoch
+    public fun get_last_completed_epoch_end(
+        pool: &RevenuePool, 
+        clock: &Clock
+    ): Option<u64> {
+        let current_time = clock::timestamp_ms(clock);
+        
+        // Start from most recent segment 
+        let mut maybe_segment_ts = linked_table::back(&pool.segments);
+        while (option::is_some(maybe_segment_ts)) {
+            let segment_ts = *option::borrow(maybe_segment_ts);
+            let segment = linked_table::borrow(&pool.segments, segment_ts);
+            
+            // Check epochs in this segment
+            if (!linked_table::is_empty(&segment.epochs)) {
+                let mut maybe_epoch_ts = linked_table::back(&segment.epochs);
+                while (option::is_some(maybe_epoch_ts)) {
+                    let epoch_ts = *option::borrow(maybe_epoch_ts);
+                    let epoch = linked_table::borrow(&segment.epochs, epoch_ts);
+                    
+                    // If this epoch is completed (end time < current time)
+                    if (epoch.end_timestamp < current_time) {
+                        return option::some(epoch.end_timestamp)
+                    };
+                    
+                    maybe_epoch_ts = linked_table::prev(&segment.epochs, epoch_ts);
+                }
+            };
+            
+            maybe_segment_ts = linked_table::prev(&pool.segments, segment_ts);
+        };
+        
+        option::none()
+    }
+
+    public fun get_current_epoch_end_ts(
+        pool: &RevenuePool, 
+        timestamp: u64
+    ): u64 {
+        
+        // Start from most recent segment 
+        let mut maybe_segment_ts = linked_table::back(&pool.segments);
+        while (option::is_some(maybe_segment_ts)) {
+            let segment_ts = *option::borrow(maybe_segment_ts);
+            let segment = linked_table::borrow(&pool.segments, segment_ts);
+            
+            // Check epochs in this segment
+            if (!linked_table::is_empty(&segment.epochs)) {
+                let mut maybe_epoch_ts = linked_table::back(&segment.epochs);
+                while (option::is_some(maybe_epoch_ts)) {
+                    let epoch_ts = *option::borrow(maybe_epoch_ts);
+                    let epoch = linked_table::borrow(&segment.epochs, epoch_ts);
+                    
+                    // If this is the current epoch (current time < end time)
+                    if (timestamp < epoch.end_timestamp) {
+                        return epoch.end_timestamp
+                    };
+                    
+                    maybe_epoch_ts = linked_table::prev(&segment.epochs, epoch_ts);
+                }
+            };
+            
+            // If no current epoch found in this segment, look at epochs in previous segment
+            maybe_segment_ts = linked_table::prev(&pool.segments, segment_ts);
+        };
+        
+        // If no current epoch found, return the timestamp of a new epoch
+        let segment = linked_table::borrow(&pool.segments, pool.current_segment_ts);
+        timestamp + segment.epoch_duration
+    }
+
+    // Checks if a position has any unclaimed revenue up to the last completed epoch
+    public fun has_unclaimed_revenue(
+        pool: &RevenuePool,
+        position: &StakePosition
+    ): bool {
+        // Iterate through active revenue types
+        let mut maybe_type = linked_table::front(&pool.revenue_types);
+        while (option::is_some(maybe_type)) {
+            let type_name = *option::borrow(maybe_type);
+            let revenue_type = linked_table::borrow(&pool.revenue_types, type_name);
+            
+            // Only check active revenue types
+            if (revenue_type.active) {
+                let last_claimed = stake_position::get_last_claimed_timestamp(position, &type_name);
+                // If their last claim is before this revenue type's last epoch end, they have unclaimed revenue
+                if (last_claimed < revenue_type.last_epoch_end_timestamp) {
+                    return true
+                };
+            };
+            
+            maybe_type = linked_table::next(&pool.revenue_types, type_name);
+        };
+        
+        false
     }
 }

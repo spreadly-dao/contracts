@@ -1,16 +1,25 @@
 module spreadly::stake_position {
     use sui::clock::{Self, Clock};
     use sui::linked_table::{Self, LinkedTable};
+    use sui::table::{Self, Table};
     use std::ascii::{String};
+
+    use spreadly::vote_type::{VoteType};
 
     const ERROR_INSUFFICIENT_AMOUNT: u64 = 1;
     const ERROR_INVALID_TIMESTAMP: u64 = 2;
+
+    public struct VoteInfo has store, copy, drop {
+        voting_power: u64,
+        vote: VoteType
+    }
 
     public struct StakePosition has key, store {
         id: UID,
         amount: u64,
         stake_timestamp: u64,
         last_claimed_timestamp: LinkedTable<String, u64>,
+        votes: Table<ID, VoteInfo>, // Maps proposal ID to vote direction
     }
     
     // Constructor function
@@ -24,6 +33,7 @@ module spreadly::stake_position {
             amount,
             stake_timestamp: clock::timestamp_ms(clock),  // Get timestamp from clock
             last_claimed_timestamp: linked_table::new(ctx),
+            votes: table::new(ctx),
         }
     }
 
@@ -48,12 +58,16 @@ module spreadly::stake_position {
     }
     
     // Existing modifier functions
-    public fun decrease_amount(position: &mut StakePosition, decrease_by: u64) {
+    public(package) fun decrease_amount(position: &mut StakePosition, decrease_by: u64) {
         assert!(position.amount >= decrease_by, ERROR_INSUFFICIENT_AMOUNT);
         position.amount = position.amount - decrease_by;
     }
 
-    public fun set_last_claimed_timestamp(
+    public(package) fun increase_amount(position: &mut StakePosition, increase_by: u64) {
+        position.amount = position.amount + increase_by;
+    }
+
+    public(package) fun set_last_claimed_timestamp(
         position: &mut StakePosition, 
         reward_type: String,
         new_timestamp: u64,
@@ -70,27 +84,60 @@ module spreadly::stake_position {
         }
     }
 
+    public fun get_vote_info(
+        position: &StakePosition, 
+        proposal_id: ID
+    ): Option<VoteInfo> {
+        if (table::contains(&position.votes, proposal_id)) {
+            option::some(*table::borrow(&position.votes, proposal_id))
+        } else {
+            option::none()
+        }
+    }
+
+    // Accessor function to get vote type from VoteInfo
+    public fun get_vote_type(vote_info: &VoteInfo): VoteType {
+        vote_info.vote
+    }
+
+    // Accessor function to get voting power from VoteInfo
+    public fun get_voting_power(vote_info: &VoteInfo): u64 {
+        vote_info.voting_power
+    }
+
+    public(package) fun record_vote(
+        position: &mut StakePosition, 
+        proposal_id: ID, 
+        vote: VoteType,
+        voting_power: u64
+    ) {
+        let vote_info = VoteInfo {
+            voting_power,
+            vote
+        };
+
+        if (table::contains(&position.votes, proposal_id)) {
+            let _ = table::remove(&mut position.votes, proposal_id);
+        };
+        table::add(&mut position.votes, proposal_id, vote_info);
+    }
+
     public fun get_all_claim_timestamps(
         table: &LinkedTable<String, u64>
     ): (vector<String>, vector<u64>) {
         let mut types = vector::empty();
         let mut timestamps = vector::empty();
         
-        // Get the first key
         let mut maybe_key = linked_table::front(table);
         
-        // While we have a key
         while (option::is_some(maybe_key)) {
             let key = *option::borrow(maybe_key);
             
-            // Get the value for this key
             let timestamp = *linked_table::borrow(table, key);
             
-            // Store the key-value pair
             vector::push_back(&mut types, key);
             vector::push_back(&mut timestamps, timestamp);
             
-            // Get the next key
             maybe_key = linked_table::next(table, key);
         };
         

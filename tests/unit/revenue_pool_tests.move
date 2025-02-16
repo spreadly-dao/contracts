@@ -58,7 +58,7 @@ module spreadly::revenue_pool_tests {
         {
             let mut staking_pool = ts::take_shared<StakingPool>(scenario);
             let stake_coins = coin::mint_for_testing<SPREADLY>(amount, ts::ctx(scenario));
-            let position = staking::stake(
+            let position = staking::create_stake(
                 &mut staking_pool,
                 stake_coins, 
                 &clock, 

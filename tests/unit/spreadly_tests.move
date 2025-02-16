@@ -359,7 +359,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EMINIMUM_CONTRIBUTION)]
+    #[expected_failure(abort_code = spreadly::spreadly::EMINIMUM_CONTRIBUTION)]
     fun test_liquidity_under_minimum() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -400,7 +400,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EMAX_CONTRIBUTION)]
+    #[expected_failure(abort_code = spreadly::spreadly::EMAX_CONTRIBUTION)]
     fun test_liquidity_over_maximum() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -528,7 +528,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::ESTILL_IN_LIQUIDITY)]
+    #[expected_failure(abort_code = spreadly::spreadly::ESTILL_IN_LIQUIDITY)]
     fun test_claim_during_liquidity_phase() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -614,7 +614,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::ENOT_LP)]
+    #[expected_failure(abort_code = spreadly::spreadly::ENOT_LP)]
     fun test_claim_by_non_lp() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -633,7 +633,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EALREADY_CLAIMED)]
+    #[expected_failure(abort_code = spreadly::spreadly::EALREADY_CLAIMED)]
     fun test_double_claim() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -915,7 +915,7 @@ module spreadly::spreadly_tests {
     }
     
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EINCORRECT_DEPOSIT)]
+    #[expected_failure(abort_code = spreadly::spreadly::EINCORRECT_DEPOSIT)]
     fun test_incorrect_deposit_amount() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -1008,7 +1008,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EZERO_CLAIMERS)]
+    #[expected_failure(abort_code = spreadly::spreadly::EZERO_CLAIMERS)]
     fun test_start_distribution_zero_registrations() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -1030,7 +1030,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EPERIOD_NOT_COMPLETE)]
+    #[expected_failure(abort_code = spreadly::spreadly::EPERIOD_NOT_COMPLETE)]
     fun test_start_distribution_before_period_ends() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -1058,7 +1058,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EALREADY_CLAIMED)]
+    #[expected_failure(abort_code = spreadly::spreadly::EALREADY_CLAIMED)]
     fun test_double_community_claim() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -1112,7 +1112,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::ENOT_REGISTERED)]
+    #[expected_failure(abort_code = spreadly::spreadly::ENOT_REGISTERED)]
     fun test_claim_by_unregistered() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -1149,7 +1149,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EWRONG_PHASE)]
+    #[expected_failure(abort_code = spreadly::spreadly::EWRONG_PHASE)]
     fun test_claim_before_distribution() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -1177,7 +1177,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EALREADY_REGISTERED)]
+    #[expected_failure(abort_code = spreadly::spreadly::EALREADY_REGISTERED)]
     fun test_double_registration() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
@@ -1206,7 +1206,7 @@ module spreadly::spreadly_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = ::spreadly::spreadly::EWRONG_PHASE)]
+    #[expected_failure(abort_code = spreadly::spreadly::EWRONG_PHASE)]
     fun test_registration_wrong_phase() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
