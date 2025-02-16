@@ -116,58 +116,12 @@ module spreadly::revenue_pool_tests {
         ts::end(scenario);
     }
 
-    // Test revenue type management
-    #[test]
-    fun test_revenue_type_lifecycle() {
-        let mut scenario = ts::begin(ADMIN);
-        let mut clock = create_clock(&mut scenario);
-        setup_test(&mut scenario, &mut clock);
-
-        let type_name = revenue_pool::get_coin_type_name<SUI>();
-        
-        ts::next_tx(&mut scenario, ADMIN);
-        {
-            let mut pool = ts::take_shared<RevenuePool>(&scenario);
-            // Add new revenue type
-            revenue_pool::add_revenue_type(&mut pool, type_name, &clock, ts::ctx(&mut scenario));
-            
-            // Verify it's active
-            assert!(revenue_pool::is_revenue_type_active(&pool, type_name), 0);
-            
-            // Deactivate it
-            revenue_pool::deactivate_revenue_type(&mut pool, type_name, &clock);
-            assert!(!revenue_pool::is_revenue_type_active(&pool, type_name), 1);
-            
-            // Reactivate it
-            revenue_pool::activate_revenue_type(&mut pool, type_name, &clock);
-            assert!(revenue_pool::is_revenue_type_active(&pool, type_name), 2);
-            
-            ts::return_shared(pool);
-        };
-
-        clock::destroy_for_testing(clock);
-        ts::end(scenario);
-    }
-
     // Test revenue deposits and claims
     #[test]
     fun test_deposit_and_claim() {
         let mut scenario = ts::begin(ADMIN);
         let mut clock = create_clock(&mut scenario);
         setup_test(&mut scenario, &mut clock);
-
-        // First, let's add the revenue type - this must happen before any deposits
-        ts::next_tx(&mut scenario, ADMIN);
-        {
-            let mut pool = ts::take_shared<RevenuePool>(&scenario);
-            // We need to use the exact same type name that we'll use for deposits
-            let type_name = revenue_pool::get_coin_type_name<SUI>();
-            revenue_pool::add_revenue_type(&mut pool, type_name, &clock, ts::ctx(&mut scenario));
-            
-            // Let's verify the type was added correctly
-            assert!(revenue_pool::is_revenue_type_active(&pool, type_name), 0);
-            ts::return_shared(pool);
-        };
 
         // Now set up the staking position that will receive revenue
         create_stake_position(&mut scenario, TEST_ADDR_1, 10000);
@@ -244,9 +198,6 @@ module spreadly::revenue_pool_tests {
             let mut pool = ts::take_shared<RevenuePool>(&scenario);
             let staking_pool = ts::take_shared<StakingPool>(&scenario);
             
-            let type_name = revenue_pool::get_coin_type_name<SUI>();
-            revenue_pool::add_revenue_type(&mut pool, type_name, &clock, ts::ctx(&mut scenario));
-            
             // Deposit 6000 SUI (should split proportionally)
             let revenue = coin::mint_for_testing<SUI>(6000, ts::ctx(&mut scenario));
             revenue_pool::deposit_revenue(
@@ -272,41 +223,4 @@ module spreadly::revenue_pool_tests {
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }
-    #[test]
-    #[expected_failure(abort_code = ::spreadly::revenue_pool::EREVENUE_TYPE_NOT_FOUND)]
-    fun test_deposit_unregistered_revenue_type() {
-        let mut scenario = ts::begin(ADMIN);
-        let mut clock = create_clock(&mut scenario);
-        setup_test(&mut scenario, &mut clock);
-
-        // Try to deposit revenue without registering the type first
-        ts::next_tx(&mut scenario, ADMIN);
-        {
-            let mut pool = ts::take_shared<RevenuePool>(&scenario);
-            let staking_pool = ts::take_shared<StakingPool>(&scenario);
-            
-            let revenue = coin::mint_for_testing<SUI>(1000, ts::ctx(&mut scenario));
-            // This should fail because we haven't registered SUI as a revenue type
-            revenue_pool::deposit_revenue(
-                &mut pool,
-                &staking_pool,
-                revenue,
-                &clock,
-                ts::ctx(&mut scenario)
-            );
-            
-            ts::return_shared(pool);
-            ts::return_shared(staking_pool);
-        };
-
-        clock::destroy_for_testing(clock);
-        ts::end(scenario);
-    }
-
-
-
-    // need to add on & figure out multiple coin structure... 
-    // should change last_claimed_timestamp on StakingPosition to be a table
-    // when staking or unstaking, check all the timestamps 
-    // if any timestamp is less than the current epoch's start, then throw error
 }

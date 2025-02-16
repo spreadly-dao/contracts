@@ -18,15 +18,12 @@ module spreadly::revenue_pool {
     const EINSUFFICIENT_STAKE: u64 = 3;
     const EALREADY_CLAIMED: u64 = 4;
     const EZERO_TOTAL_STAKE: u64 = 5;
-    const EINACTIVE_REVENUE_TYPE: u64 = 6;
-    const EDUPLICATE_REVENUE_TYPE: u64 = 7;
-    const EREVENUE_TYPE_NOT_FOUND: u64 = 8;
+    const EREVENUE_TYPE_NOT_FOUND: u64 = 6;
 
     // === public Structs ===
 
     public struct RevenueType has store {
         name: String,
-        active: bool,
         added_at: u64,
         last_epoch_end_timestamp: u64
     }
@@ -77,17 +74,6 @@ module spreadly::revenue_pool {
         asset: String
     }
 
-
-    public struct RevenueTypeAddedEvent has copy, drop {
-        type_name: String,
-        timestamp: u64
-    }
-
-    public struct RevenueTypeStatusChangeEvent has copy, drop {
-        type_name: String,
-        active: bool,
-        timestamp: u64
-    }
     // === Core Functions ===
 
     /// Initialize the revenue pool with zero timestamp
@@ -130,78 +116,6 @@ module spreadly::revenue_pool {
         }
     } 
 
-    // required governance
-    public(package) fun add_revenue_type(
-        pool: &mut RevenuePool,
-        type_name: String,
-        clock: &Clock,
-        ctx: &mut TxContext
-    ) {
-        // Ensure pool is initialized before we add any revenue types
-        initialize_if_needed(pool, clock, ctx);
-        
-        let timestamp = clock::timestamp_ms(clock);
-        
-        // Check if this revenue type already exists in the pool's global revenue types
-        assert!(!linked_table::contains(&pool.revenue_types, type_name), EDUPLICATE_REVENUE_TYPE);
-        
-        // Create the new revenue type with initial configuration
-        let revenue_type = RevenueType {
-            name: type_name,
-            active: true,
-            added_at: timestamp,
-            last_epoch_end_timestamp: 0
-        };
-
-        // Add the revenue type to the pool's global revenue types table
-        linked_table::push_back(&mut pool.revenue_types, type_name, revenue_type);
-        
-        // Emit event to notify listeners about the new revenue type
-        event::emit(RevenueTypeAddedEvent {
-            type_name,
-            timestamp
-        });
-    }
-
-    // required governance
-    public(package) fun deactivate_revenue_type(
-        pool: &mut RevenuePool,
-        type_name: String,
-        clock: &Clock
-    ) {
-        let timestamp = clock::timestamp_ms(clock);
-        
-        assert!(linked_table::contains(&pool.revenue_types, type_name), EREVENUE_TYPE_NOT_FOUND);
-        
-        let revenue_type = linked_table::borrow_mut(&mut pool.revenue_types, type_name);
-        revenue_type.active = false;
-
-        event::emit(RevenueTypeStatusChangeEvent {
-            type_name,
-            active: false,
-            timestamp
-        });
-    }
-
-    // required governance
-    public(package) fun activate_revenue_type(
-        pool: &mut RevenuePool,
-        type_name: String,
-        clock: &Clock
-    ) {
-        let timestamp = clock::timestamp_ms(clock);
-        assert!(linked_table::contains(&pool.revenue_types, type_name), EREVENUE_TYPE_NOT_FOUND);
-        
-        let revenue_type = linked_table::borrow_mut(&mut pool.revenue_types, type_name);
-        revenue_type.active = true;
-
-        event::emit(RevenueTypeStatusChangeEvent {
-            type_name,  
-            active: true,
-            timestamp
-        });
-    }
-
     /// Deposit revenue into the pool
     public fun deposit_revenue<T>(
         pool: &mut RevenuePool,
@@ -219,12 +133,18 @@ module spreadly::revenue_pool {
         // Get the current epoch end timestamp
         let current_end_ts = get_current_epoch_end_ts(pool, timestamp);
         
-        // First validate the revenue type exists and is active
-        assert!(linked_table::contains(&pool.revenue_types, type_name), EREVENUE_TYPE_NOT_FOUND);
-        let revenue_type = linked_table::borrow_mut(&mut pool.revenue_types, type_name);
-        assert!(revenue_type.active, EINACTIVE_REVENUE_TYPE);
-
-        revenue_type.last_epoch_end_timestamp = current_end_ts;
+        // Add revenue type if it doesn't exist, or update timestamp if it does
+        if (!linked_table::contains(&pool.revenue_types, type_name)) {
+            let revenue_type = RevenueType {
+                name: type_name,
+                added_at: timestamp,
+                last_epoch_end_timestamp: current_end_ts
+            };
+            linked_table::push_back(&mut pool.revenue_types, type_name, revenue_type);
+        } else {
+            let revenue_type = linked_table::borrow_mut(&mut pool.revenue_types, type_name);
+            revenue_type.last_epoch_end_timestamp = current_end_ts;
+        };
         
         // Get current segment and then the current epoch within it
         let current_epoch = get_current_epoch_mut(pool, staking_pool, timestamp, ctx);
@@ -275,8 +195,6 @@ module spreadly::revenue_pool {
         
         // Verify revenue type exists and is active
         assert!(linked_table::contains(&pool.revenue_types, type_name), EREVENUE_TYPE_NOT_FOUND);
-        let revenue_type = linked_table::borrow(&pool.revenue_types, type_name);
-        assert!(revenue_type.active, EINACTIVE_REVENUE_TYPE);
         
         let balance = get_claimable_amount<T>(
             pool,
@@ -494,18 +412,6 @@ module spreadly::revenue_pool {
         pool.current_segment_ts
     }
 
-    /// Checks if a given revenue type exists and is active
-    public fun is_revenue_type_active(pool: &RevenuePool, type_name: String): bool {
-        // First check if the type exists
-        if (!linked_table::contains(&pool.revenue_types, type_name)) {
-            return false
-        };
-        
-        // Get the revenue type and check its active status
-        let revenue_type = linked_table::borrow(&pool.revenue_types, type_name);
-        revenue_type.active
-    }
-
     // Gets the end timestamp of the last completed epoch
     public fun get_last_completed_epoch_end(
         pool: &RevenuePool, 
@@ -589,12 +495,10 @@ module spreadly::revenue_pool {
             let revenue_type = linked_table::borrow(&pool.revenue_types, type_name);
             
             // Only check active revenue types
-            if (revenue_type.active) {
-                let last_claimed = stake_position::get_last_claimed_timestamp(position, &type_name);
-                // If their last claim is before this revenue type's last epoch end, they have unclaimed revenue
-                if (last_claimed < revenue_type.last_epoch_end_timestamp) {
-                    return true
-                };
+            let last_claimed = stake_position::get_last_claimed_timestamp(position, &type_name);
+            // If their last claim is before this revenue type's last epoch end, they have unclaimed revenue
+            if (last_claimed < revenue_type.last_epoch_end_timestamp) {
+                return true
             };
             
             maybe_type = linked_table::next(&pool.revenue_types, type_name);
